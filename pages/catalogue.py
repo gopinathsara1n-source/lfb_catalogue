@@ -508,5 +508,5 @@ with catalogue_col:
 st.divider()
 
 st.caption(
-    "Bhartiys Fashions • Leather Catalogue"
+    "Bhartiya Fashions • Leather Catalogue"
 )
