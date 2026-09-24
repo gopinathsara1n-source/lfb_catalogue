@@ -10,7 +10,7 @@ from urllib.parse import quote
 st.set_page_config(
     page_title="Leather Catalogue",
     page_icon="👜",
-    layout="wide"
+    layout="wide",
 )
 
 
@@ -18,24 +18,26 @@ st.set_page_config(
 # SUPABASE CONNECTION
 # =========================================================
 
-supabase = create_client(
-    st.secrets["SUPABASE_URL"],
-    st.secrets["SUPABASE_KEY"]
-)
+@st.cache_resource
+def get_supabase():
+
+    return create_client(
+        st.secrets["SUPABASE_URL"],
+        st.secrets["SUPABASE_KEY"],
+    )
+
+
+supabase = get_supabase()
 
 
 # =========================================================
-# STORAGE CONFIGURATION
+# STORAGE
 # =========================================================
 
 BUCKET_NAME = "leather-images"
 
 
 def get_image_url(filename):
-    """
-    Convert a Supabase Storage filename into a public image URL.
-    Handles filenames containing spaces and special characters.
-    """
 
     if not filename:
         return None
@@ -45,13 +47,11 @@ def get_image_url(filename):
     if not filename:
         return None
 
-    encoded_filename = quote(filename)
-
     return (
         f"{st.secrets['SUPABASE_URL']}"
         f"/storage/v1/object/public/"
         f"{BUCKET_NAME}/"
-        f"{encoded_filename}"
+        f"{quote(filename)}"
     )
 
 
@@ -59,7 +59,8 @@ def get_image_url(filename):
 # LOAD PRODUCTS
 # =========================================================
 
-try:
+@st.cache_data(ttl=300)
+def load_products():
 
     response = (
         supabase
@@ -83,7 +84,12 @@ try:
         .execute()
     )
 
-    products = response.data or []
+    return response.data or []
+
+
+try:
+
+    products = load_products()
 
 except Exception as e:
 
@@ -93,113 +99,414 @@ except Exception as e:
 
 
 # =========================================================
-# PAGE HEADER
+# HEADER
 # =========================================================
 
 st.title("Leather Catalogue")
 
-st.caption("Customer-facing leather catalogue.")
+st.caption(
+    "Explore our leather collection by article, colour, animal, "
+    "tannage and origin."
+)
 
 
 # =========================================================
-# EMPTY STATE
+# SEARCH
 # =========================================================
 
-if not products:
+search_col, refresh_col = st.columns(
+    [12, 1],
+    vertical_alignment="center",
+)
 
-    st.info("No leather products have been added yet.")
-    st.stop()
+with search_col:
+
+    search_text = st.text_input(
+        "Search",
+        placeholder=(
+            "Search leather ID, article, colour, animal, "
+            "tannage or origin..."
+        ),
+        label_visibility="collapsed",
+    )
+
+with refresh_col:
+
+    if st.button("↻", use_container_width=True):
+
+        st.cache_data.clear()
+        st.rerun()
 
 
-st.success(f"{len(products)} leather products available")
+st.divider()
 
 
 # =========================================================
-# DISPLAY PRODUCTS
+# FILTER VALUES
 # =========================================================
+
+animals = sorted(
+    {
+        str(p["animal"]).strip()
+        for p in products
+        if p.get("animal")
+    }
+)
+
+tannages = sorted(
+    {
+        str(p["tannage"]).strip()
+        for p in products
+        if p.get("tannage")
+    }
+)
+
+colors = sorted(
+    {
+        str(p["color"]).strip()
+        for p in products
+        if p.get("color")
+    }
+)
+
+origins = sorted(
+    {
+        str(p["origin"]).strip()
+        for p in products
+        if p.get("origin")
+    }
+)
+
+
+# =========================================================
+# MAIN LAYOUT
+# =========================================================
+
+filter_col, catalogue_col = st.columns(
+    [1.2, 5],
+    gap="large",
+)
+
+
+# =========================================================
+# FILTER PANEL
+# =========================================================
+
+with filter_col:
+
+    with st.container(border=True):
+
+        st.subheader("Filter")
+
+        st.caption("Narrow down the leather collection.")
+
+        selected_animals = st.multiselect(
+            "Animal",
+            options=animals,
+            placeholder="All animals",
+        )
+
+        selected_tannages = st.multiselect(
+            "Tannage",
+            options=tannages,
+            placeholder="All tannages",
+        )
+
+        selected_colors = st.multiselect(
+            "Colour",
+            options=colors,
+            placeholder="All colours",
+        )
+
+        selected_origins = st.multiselect(
+            "Origin",
+            options=origins,
+            placeholder="All origins",
+        )
+
+        st.divider()
+
+        st.caption(
+            f"{len(products)} total leather articles"
+        )
+
+
+# =========================================================
+# FILTER PRODUCTS
+# =========================================================
+
+filtered_products = []
+
+
+search_lower = search_text.strip().lower()
+
 
 for product in products:
 
-    st.subheader(product["article_name"])
-
     # -----------------------------------------------------
-    # IMAGE URLS
+    # SEARCH
     # -----------------------------------------------------
 
-    main_image_url = get_image_url(
-        product.get("main_photo")
+    searchable_text = " ".join(
+        [
+            str(product.get("leather_id") or ""),
+            str(product.get("article_name") or ""),
+            str(product.get("color") or ""),
+            str(product.get("thickness") or ""),
+            str(product.get("tannage") or ""),
+            str(product.get("animal") or ""),
+            str(product.get("origin") or ""),
+        ]
+    ).lower()
+
+    if search_lower and search_lower not in searchable_text:
+        continue
+
+    # -----------------------------------------------------
+    # ANIMAL
+    # -----------------------------------------------------
+
+    if selected_animals:
+
+        if product.get("animal") not in selected_animals:
+            continue
+
+    # -----------------------------------------------------
+    # TANNAGE
+    # -----------------------------------------------------
+
+    if selected_tannages:
+
+        if product.get("tannage") not in selected_tannages:
+            continue
+
+    # -----------------------------------------------------
+    # COLOR
+    # -----------------------------------------------------
+
+    if selected_colors:
+
+        if product.get("color") not in selected_colors:
+            continue
+
+    # -----------------------------------------------------
+    # ORIGIN
+    # -----------------------------------------------------
+
+    if selected_origins:
+
+        if product.get("origin") not in selected_origins:
+            continue
+
+    filtered_products.append(product)
+
+
+# =========================================================
+# CATALOGUE HEADER
+# =========================================================
+
+with catalogue_col:
+
+    result_col, sort_col = st.columns(
+        [4, 1],
+        vertical_alignment="center",
     )
 
-    closeup_image_url = get_image_url(
-        product.get("closeup_photo")
+    with result_col:
+
+        st.subheader("Available Leather")
+
+        st.caption(
+            f"Showing {len(filtered_products)} of "
+            f"{len(products)} leather articles"
+        )
+
+    with sort_col:
+
+        sort_option = st.selectbox(
+            "Sort",
+            [
+                "Leather ID",
+                "Article",
+                "Animal",
+                "Colour",
+            ],
+            label_visibility="collapsed",
+        )
+
+
+# =========================================================
+# SORT
+# =========================================================
+
+if sort_option == "Leather ID":
+
+    filtered_products.sort(
+        key=lambda x: str(x.get("leather_id") or "")
     )
 
-    # -----------------------------------------------------
-    # PRODUCT IMAGES
-    # -----------------------------------------------------
+elif sort_option == "Article":
 
-    image_col1, image_col2 = st.columns(2)
+    filtered_products.sort(
+        key=lambda x: str(x.get("article_name") or "").lower()
+    )
 
-    with image_col1:
+elif sort_option == "Animal":
 
-        if main_image_url:
+    filtered_products.sort(
+        key=lambda x: str(x.get("animal") or "").lower()
+    )
 
-            st.image(
-                main_image_url,
-                caption="Main View",
-                use_container_width=True
+elif sort_option == "Colour":
+
+    filtered_products.sort(
+        key=lambda x: str(x.get("color") or "").lower()
+    )
+
+
+# =========================================================
+# EMPTY FILTER RESULT
+# =========================================================
+
+if not filtered_products:
+
+    with catalogue_col:
+
+        with st.container(border=True):
+
+            st.info(
+                "No leather articles match your search or filters."
             )
 
-        else:
-
-            st.info("Main image not available.")
-
-    with image_col2:
-
-        if closeup_image_url:
-
-            st.image(
-                closeup_image_url,
-                caption="Close-up",
-                use_container_width=True
+            st.write(
+                "Try clearing one or more filters."
             )
 
-        else:
+    st.stop()
 
-            st.info("Close-up image not available.")
 
-    # -----------------------------------------------------
-    # PRODUCT DETAILS
-    # -----------------------------------------------------
+# =========================================================
+# PRODUCT GRID
+# =========================================================
 
-    detail_col1, detail_col2 = st.columns(2)
+with catalogue_col:
 
-    with detail_col1:
+    # Four cards per row on desktop.
+    # Streamlit columns automatically adapt on smaller screens.
 
-        st.write(
-            f"**Leather ID:** {product.get('leather_id', '-')}"
+    for row_start in range(0, len(filtered_products), 4):
+
+        row_products = filtered_products[
+            row_start:row_start + 4
+        ]
+
+        columns = st.columns(
+            4,
+            gap="medium",
         )
 
-        st.write(
-            f"**Color:** {product.get('color', '-')}"
-        )
+        for column, product in zip(columns, row_products):
 
-        st.write(
-            f"**Thickness:** {product.get('thickness', '-')}"
-        )
+            with column:
 
-        st.write(
-            f"**Tannage:** {product.get('tannage', '-')}"
-        )
+                # -------------------------------------------------
+                # CARD
+                # -------------------------------------------------
 
-    with detail_col2:
+                with st.container(border=True):
 
-        st.write(
-            f"**Animal:** {product.get('animal', '-')}"
-        )
+                    # -------------------------------------------------
+                    # MAIN IMAGE
+                    # -------------------------------------------------
 
-        st.write(
-            f"**Origin:** {product.get('origin', '-')}"
-        )
+                    main_image = get_image_url(
+                        product.get("main_photo")
+                    )
 
-    st.divider()
+                    if main_image:
+
+                        st.image(
+                            main_image,
+                            width="stretch",
+                        )
+
+                    else:
+
+                        st.info(
+                            "Image unavailable"
+                        )
+
+                    # -------------------------------------------------
+                    # ARTICLE
+                    # -------------------------------------------------
+
+                    st.markdown(
+                        f"**{product.get('article_name', '-') }**"
+                    )
+
+                    # -------------------------------------------------
+                    # LEATHER ID
+                    # -------------------------------------------------
+
+                    st.caption(
+                        f"Leather ID: "
+                        f"{product.get('leather_id', '-')}"
+                    )
+
+                    # -------------------------------------------------
+                    # BASIC DETAILS
+                    # -------------------------------------------------
+
+                    st.write(
+                        f"**Colour:** "
+                        f"{product.get('color', '-')}"
+                    )
+
+                    st.write(
+                        f"**Thickness:** "
+                        f"{product.get('thickness', '-')}"
+                    )
+
+                    # -------------------------------------------------
+                    # MORE DETAILS
+                    # -------------------------------------------------
+
+                    with st.expander("View details"):
+
+                        st.write(
+                            f"**Animal:** "
+                            f"{product.get('animal', '-')}"
+                        )
+
+                        st.write(
+                            f"**Tannage:** "
+                            f"{product.get('tannage', '-')}"
+                        )
+
+                        st.write(
+                            f"**Origin:** "
+                            f"{product.get('origin', '-')}"
+                        )
+
+                        closeup_image = get_image_url(
+                            product.get("closeup_photo")
+                        )
+
+                        if closeup_image:
+
+                            st.image(
+                                closeup_image,
+                                caption="Close-up",
+                                width="stretch",
+                            )
+
+
+# =========================================================
+# FOOTER
+# =========================================================
+
+st.divider()
+
+st.caption(
+    "Naseer Leather • Leather Catalogue"
+)
