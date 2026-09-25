@@ -106,26 +106,28 @@ except Exception as e:
 # IMAGE SETTINGS
 # =========================================================
 
-# Every catalogue image will be displayed in this ratio.
+# Fixed catalogue-card ratio.
 #
-# 16:9 gives the clean horizontal product-card appearance
-# similar to the catalogue design you showed.
-#
-# The image is FITTED, not cropped.
-# Therefore the complete leather hide remains visible.
+# Every product card gets exactly the same visual
+# image area regardless of the original photo shape.
 
-IMAGE_SIZE = (1200, 675)
+CARD_SIZE = (1200, 675)
+
+
+# Larger inspection viewport inside detail dialog.
+
+DETAIL_VIEWPORT = (1200, 800)
 
 
 # =========================================================
-# DOWNLOAD + NORMALIZE IMAGE
+# DOWNLOAD ORIGINAL IMAGE
 # =========================================================
 
 @st.cache_data(
     ttl=3600,
     show_spinner=False,
 )
-def prepare_catalogue_image(image_url):
+def load_image(image_url):
 
     if not image_url:
         return None
@@ -143,53 +145,584 @@ def prepare_catalogue_image(image_url):
             BytesIO(image_bytes)
         ).convert("RGB")
 
-        # -------------------------------------------------
-        # FIT IMAGE INTO FIXED 16:9 CANVAS
-        #
-        # ImageOps.contain:
-        # - preserves original aspect ratio
-        # - does NOT crop the leather
-        # - scales large images down
-        # -------------------------------------------------
+        return image
 
-        fitted_image = ImageOps.contain(
-            image,
-            IMAGE_SIZE,
-        )
+    except Exception:
 
-        # -------------------------------------------------
-        # CREATE SAME-SIZE CANVAS FOR EVERY IMAGE
-        # -------------------------------------------------
+        return None
+
+
+# =========================================================
+# CREATE UNIFORM CARD IMAGE
+# =========================================================
+
+def make_card_image(image):
+
+    if image is None:
+        return None
+
+    # Preserve entire leather image.
+    fitted = ImageOps.contain(
+        image,
+        CARD_SIZE,
+    )
+
+    # White background.
+    canvas = Image.new(
+        "RGB",
+        CARD_SIZE,
+        "white",
+    )
+
+    # Center image.
+    x = (
+        CARD_SIZE[0]
+        - fitted.width
+    ) // 2
+
+    y = (
+        CARD_SIZE[1]
+        - fitted.height
+    ) // 2
+
+    canvas.paste(
+        fitted,
+        (x, y),
+    )
+
+    return canvas
+
+
+# =========================================================
+# CREATE ZOOMED IMAGE
+# =========================================================
+
+def make_zoom_view(
+    image,
+    zoom_percent,
+    horizontal_position,
+    vertical_position,
+):
+
+    if image is None:
+        return None
+
+    viewport_width = DETAIL_VIEWPORT[0]
+    viewport_height = DETAIL_VIEWPORT[1]
+
+    original_width = image.width
+    original_height = image.height
+
+    # -----------------------------------------------------
+    # BASE SCALE
+    #
+    # At 100%, the complete image fits inside the
+    # inspection viewport.
+    # -----------------------------------------------------
+
+    base_scale = min(
+        viewport_width / original_width,
+        viewport_height / original_height,
+    )
+
+    scale = (
+        base_scale
+        * zoom_percent
+        / 100
+    )
+
+    new_width = max(
+        1,
+        int(original_width * scale),
+    )
+
+    new_height = max(
+        1,
+        int(original_height * scale),
+    )
+
+    # -----------------------------------------------------
+    # RESIZE
+    # -----------------------------------------------------
+
+    resized = image.resize(
+        (
+            new_width,
+            new_height,
+        ),
+        Image.Resampling.LANCZOS,
+    )
+
+    # -----------------------------------------------------
+    # IF IMAGE IS SMALLER THAN VIEWPORT
+    # -----------------------------------------------------
+
+    if (
+        resized.width <= viewport_width
+        and resized.height <= viewport_height
+    ):
 
         canvas = Image.new(
             "RGB",
-            IMAGE_SIZE,
+            (
+                viewport_width,
+                viewport_height,
+            ),
             "white",
         )
 
-        # -------------------------------------------------
-        # CENTER IMAGE
-        # -------------------------------------------------
-
         x = (
-            IMAGE_SIZE[0]
-            - fitted_image.width
+            viewport_width
+            - resized.width
         ) // 2
 
         y = (
-            IMAGE_SIZE[1]
-            - fitted_image.height
+            viewport_height
+            - resized.height
         ) // 2
 
         canvas.paste(
-            fitted_image,
+            resized,
             (x, y),
         )
 
         return canvas
 
-    except Exception:
-        return None
+    # -----------------------------------------------------
+    # CALCULATE MAX PAN
+    # -----------------------------------------------------
+
+    max_left = max(
+        0,
+        resized.width
+        - viewport_width,
+    )
+
+    max_top = max(
+        0,
+        resized.height
+        - viewport_height,
+    )
+
+    # -----------------------------------------------------
+    # HORIZONTAL POSITION
+    #
+    # 0   = far left
+    # 50  = center
+    # 100 = far right
+    # -----------------------------------------------------
+
+    left = int(
+        max_left
+        * horizontal_position
+        / 100
+    )
+
+    # -----------------------------------------------------
+    # VERTICAL POSITION
+    #
+    # 0   = top
+    # 50  = center
+    # 100 = bottom
+    # -----------------------------------------------------
+
+    top = int(
+        max_top
+        * vertical_position
+        / 100
+    )
+
+    # -----------------------------------------------------
+    # CROP VIEWPORT
+    # -----------------------------------------------------
+
+    right = left + viewport_width
+
+    bottom = top + viewport_height
+
+    cropped = resized.crop(
+        (
+            left,
+            top,
+            right,
+            bottom,
+        )
+    )
+
+    return cropped
+
+
+# =========================================================
+# DETAIL DIALOG
+# =========================================================
+
+@st.dialog(
+    "Leather Details",
+    width="large",
+    dismissible=True,
+)
+def show_product_details(product):
+
+    leather_id = str(
+        product.get("leather_id")
+        or "-"
+    )
+
+    article_name = str(
+        product.get("article_name")
+        or "-"
+    )
+
+    main_url = get_image_url(
+        product.get("main_photo")
+    )
+
+    closeup_url = get_image_url(
+        product.get("closeup_photo")
+    )
+
+    # -----------------------------------------------------
+    # LOAD ORIGINAL IMAGES
+    # -----------------------------------------------------
+
+    main_image = (
+        load_image(main_url)
+        if main_url
+        else None
+    )
+
+    closeup_image = (
+        load_image(closeup_url)
+        if closeup_url
+        else None
+    )
+
+    # -----------------------------------------------------
+    # AVAILABLE PHOTOS
+    # -----------------------------------------------------
+
+    photo_options = []
+
+    if main_image is not None:
+        photo_options.append("Main")
+
+    if closeup_image is not None:
+        photo_options.append("Close-up")
+
+    # -----------------------------------------------------
+    # PHOTO SELECTION
+    # -----------------------------------------------------
+
+    if len(photo_options) == 2:
+
+        selected_photo = st.segmented_control(
+            "Photo",
+            photo_options,
+            default="Main",
+            width="stretch",
+            key=f"detail_photo_{leather_id}",
+        )
+
+    elif len(photo_options) == 1:
+
+        selected_photo = photo_options[0]
+
+    else:
+
+        selected_photo = None
+
+
+    # -----------------------------------------------------
+    # SELECT IMAGE
+    # -----------------------------------------------------
+
+    if selected_photo == "Close-up":
+
+        selected_image = closeup_image
+
+    else:
+
+        selected_image = main_image
+
+
+    # =====================================================
+    # MAIN DETAIL LAYOUT
+    # =====================================================
+
+    photo_col, details_col = st.columns(
+        [1.55, 1],
+        gap="large",
+    )
+
+
+    # =====================================================
+    # LEFT SIDE — LARGE PHOTO
+    # =====================================================
+
+    with photo_col:
+
+        st.markdown(
+            f"### {article_name}"
+        )
+
+        if selected_image is None:
+
+            st.info(
+                "No image available."
+            )
+
+        else:
+
+            # -------------------------------------------------
+            # ZOOM CONTROL
+            # -------------------------------------------------
+
+            zoom_col, reset_col = st.columns(
+                [4, 1],
+                vertical_alignment="bottom",
+            )
+
+
+            with zoom_col:
+
+                zoom_percent = st.slider(
+                    "Zoom",
+                    min_value=50,
+                    max_value=400,
+                    value=100,
+                    step=10,
+                    format="%d%%",
+                    key=f"zoom_{leather_id}",
+                )
+
+
+            with reset_col:
+
+                reset_zoom = st.button(
+                    "Reset",
+                    key=f"reset_zoom_{leather_id}",
+                    width="stretch",
+                )
+
+
+            if reset_zoom:
+
+                st.session_state[
+                    f"zoom_{leather_id}"
+                ] = 100
+
+                st.session_state[
+                    f"xpos_{leather_id}"
+                ] = 50
+
+                st.session_state[
+                    f"ypos_{leather_id}"
+                ] = 50
+
+                st.rerun()
+
+
+            # -------------------------------------------------
+            # POSITION CONTROLS
+            #
+            # These become useful when zoomed in.
+            # -------------------------------------------------
+
+            position_col1, position_col2 = st.columns(
+                2,
+                gap="medium",
+            )
+
+
+            with position_col1:
+
+                horizontal_position = st.slider(
+                    "Horizontal",
+                    min_value=0,
+                    max_value=100,
+                    value=50,
+                    step=5,
+                    help=(
+                        "Move the zoomed image "
+                        "left or right."
+                    ),
+                    key=f"xpos_{leather_id}",
+                )
+
+
+            with position_col2:
+
+                vertical_position = st.slider(
+                    "Vertical",
+                    min_value=0,
+                    max_value=100,
+                    value=50,
+                    step=5,
+                    help=(
+                        "Move the zoomed image "
+                        "up or down."
+                    ),
+                    key=f"ypos_{leather_id}",
+                )
+
+
+            # -------------------------------------------------
+            # CREATE ZOOM VIEW
+            # -------------------------------------------------
+
+            displayed_image = make_zoom_view(
+                selected_image,
+                zoom_percent,
+                horizontal_position,
+                vertical_position,
+            )
+
+
+            # -------------------------------------------------
+            # DISPLAY
+            # -------------------------------------------------
+
+            st.image(
+                displayed_image,
+                width="stretch",
+            )
+
+
+            # -------------------------------------------------
+            # IMAGE INFORMATION
+            # -------------------------------------------------
+
+            st.caption(
+                f"{selected_photo} • "
+                f"Zoom {zoom_percent}%"
+            )
+
+
+    # =====================================================
+    # RIGHT SIDE — DETAILS
+    # =====================================================
+
+    with details_col:
+
+        st.markdown(
+            "### Product Information"
+        )
+
+        st.divider()
+
+
+        # -------------------------------------------------
+        # LEATHER ID
+        # -------------------------------------------------
+
+        st.markdown(
+            f"**Leather ID**  \n"
+            f"{leather_id}"
+        )
+
+        st.divider()
+
+
+        # -------------------------------------------------
+        # ARTICLE
+        # -------------------------------------------------
+
+        st.markdown(
+            f"**Article Name**  \n"
+            f"{product.get('article_name') or '-'}"
+        )
+
+        st.divider()
+
+
+        # -------------------------------------------------
+        # COLOUR
+        # -------------------------------------------------
+
+        st.markdown(
+            f"**Colour**  \n"
+            f"{product.get('color') or '-'}"
+        )
+
+        st.divider()
+
+
+        # -------------------------------------------------
+        # THICKNESS
+        # -------------------------------------------------
+
+        st.markdown(
+            f"**Thickness**  \n"
+            f"{product.get('thickness') or '-'}"
+        )
+
+        st.divider()
+
+
+        # -------------------------------------------------
+        # ANIMAL
+        # -------------------------------------------------
+
+        st.markdown(
+            f"**Animal**  \n"
+            f"{product.get('animal') or '-'}"
+        )
+
+        st.divider()
+
+
+        # -------------------------------------------------
+        # TANNAGE
+        # -------------------------------------------------
+
+        st.markdown(
+            f"**Tannage**  \n"
+            f"{product.get('tannage') or '-'}"
+        )
+
+        st.divider()
+
+
+        # -------------------------------------------------
+        # ORIGIN
+        # -------------------------------------------------
+
+        st.markdown(
+            f"**Origin**  \n"
+            f"{product.get('origin') or '-'}"
+        )
+
+        st.divider()
+
+
+        # -------------------------------------------------
+        # PHOTO STATUS
+        # -------------------------------------------------
+
+        if main_image is not None:
+
+            st.success(
+                "Main photo available"
+            )
+
+        else:
+
+            st.warning(
+                "Main photo unavailable"
+            )
+
+
+        if closeup_image is not None:
+
+            st.success(
+                "Close-up photo available"
+            )
+
+        else:
+
+            st.warning(
+                "Close-up photo unavailable"
+            )
 
 
 # =========================================================
@@ -305,11 +838,13 @@ with filter_col:
             "Narrow down the leather collection."
         )
 
+
         selected_animals = st.multiselect(
             "Animal",
             options=animals,
             placeholder="All animals",
         )
+
 
         selected_tannages = st.multiselect(
             "Tannage",
@@ -317,11 +852,13 @@ with filter_col:
             placeholder="All tannages",
         )
 
+
         selected_colors = st.multiselect(
             "Colour",
             options=colors,
             placeholder="All colours",
         )
+
 
         selected_origins = st.multiselect(
             "Origin",
@@ -329,7 +866,9 @@ with filter_col:
             placeholder="All origins",
         )
 
+
         st.divider()
+
 
         st.caption(
             f"{len(products)} total leather articles"
@@ -350,10 +889,6 @@ search_lower = (
 
 
 for product in products:
-
-    # -----------------------------------------------------
-    # SEARCH
-    # -----------------------------------------------------
 
     searchable_text = " ".join(
         [
@@ -376,46 +911,42 @@ for product in products:
         continue
 
 
-    # -----------------------------------------------------
-    # ANIMAL
-    # -----------------------------------------------------
-
     if selected_animals:
 
-        if product.get("animal") not in selected_animals:
+        if (
+            product.get("animal")
+            not in selected_animals
+        ):
 
             continue
 
-
-    # -----------------------------------------------------
-    # TANNAGE
-    # -----------------------------------------------------
 
     if selected_tannages:
 
-        if product.get("tannage") not in selected_tannages:
+        if (
+            product.get("tannage")
+            not in selected_tannages
+        ):
 
             continue
 
-
-    # -----------------------------------------------------
-    # COLOR
-    # -----------------------------------------------------
 
     if selected_colors:
 
-        if product.get("color") not in selected_colors:
+        if (
+            product.get("color")
+            not in selected_colors
+        ):
 
             continue
 
 
-    # -----------------------------------------------------
-    # ORIGIN
-    # -----------------------------------------------------
-
     if selected_origins:
 
-        if product.get("origin") not in selected_origins:
+        if (
+            product.get("origin")
+            not in selected_origins
+        ):
 
             continue
 
@@ -509,10 +1040,13 @@ if not filtered_products:
 
     with catalogue_col:
 
-        with st.container(border=True):
+        with st.container(
+            border=True
+        ):
 
             st.info(
-                "No leather articles match your search or filters."
+                "No leather articles match "
+                "your search or filters."
             )
 
             st.write(
@@ -527,11 +1061,6 @@ if not filtered_products:
 # =========================================================
 
 with catalogue_col:
-
-    # Four products per row.
-    #
-    # Streamlit columns adapt automatically to
-    # different screen sizes.
 
     for row_start in range(
         0,
@@ -557,188 +1086,53 @@ with catalogue_col:
 
             with column:
 
-                # =================================================
-                # PRODUCT CARD
-                # =================================================
-
                 with st.container(
                     border=True
                 ):
 
-                    leather_id = str(
-                        product.get(
-                            "leather_id"
-                        ) or ""
-                    )
-
-
                     # =================================================
-                    # IMAGE URLS
+                    # PRODUCT IMAGE
                     # =================================================
 
-                    main_image_url = get_image_url(
+                    main_url = get_image_url(
                         product.get(
                             "main_photo"
                         )
                     )
 
 
-                    closeup_image_url = get_image_url(
-                        product.get(
-                            "closeup_photo"
-                        )
-                    )
-
-
-                    # =================================================
-                    # PREPARE IMAGES
-                    # =================================================
-
-                    main_image = (
-                        prepare_catalogue_image(
-                            main_image_url
-                        )
-                        if main_image_url
+                    main_original = (
+                        load_image(main_url)
+                        if main_url
                         else None
                     )
 
 
-                    closeup_image = (
-                        prepare_catalogue_image(
-                            closeup_image_url
+                    card_image = (
+                        make_card_image(
+                            main_original
                         )
-                        if closeup_image_url
+                        if main_original
                         else None
                     )
 
 
-                    # =================================================
-                    # MAIN / CLOSE-UP SELECTOR
-                    # =================================================
+                    if card_image is not None:
 
-                    image_options = []
-
-                    if main_image is not None:
-
-                        image_options.append(
-                            "Main"
+                        st.image(
+                            card_image,
+                            width="stretch",
                         )
 
-                    if closeup_image is not None:
-
-                        image_options.append(
-                            "Close-up"
-                        )
-
-
-                    # If neither image exists
-                    if not image_options:
+                    else:
 
                         st.info(
                             "Image unavailable"
                         )
 
-                        selected_image = None
-                        selected_image_name = None
-
-
-                    else:
-
-                        # -------------------------------------------------
-                        # TWO IMAGE SLIDES
-                        # -------------------------------------------------
-
-                        if len(image_options) == 2:
-
-                            selected_image_name = (
-                                st.segmented_control(
-                                    "Photo",
-                                    image_options,
-                                    default="Main",
-                                    label_visibility="collapsed",
-                                    width="stretch",
-                                    key=f"photo_{leather_id}",
-                                )
-                            )
-
-                        else:
-
-                            selected_image_name = (
-                                image_options[0]
-                            )
-
-
-                        # -------------------------------------------------
-                        # SELECT IMAGE
-                        # -------------------------------------------------
-
-                        if (
-                            selected_image_name
-                            == "Close-up"
-                        ):
-
-                            selected_image = (
-                                closeup_image
-                            )
-
-                        else:
-
-                            selected_image = (
-                                main_image
-                            )
-
-
-                        # -------------------------------------------------
-                        # DISPLAY IMAGE
-                        # -------------------------------------------------
-
-                        if selected_image is not None:
-
-                            st.image(
-                                selected_image,
-                                width="stretch",
-                            )
-
-
-                            # -------------------------------------------------
-                            # IMAGE ACTIONS
-                            # -------------------------------------------------
-
-                            zoom_col, photo_col = st.columns(
-                                [1, 1],
-                                gap="small",
-                            )
-
-
-                            with zoom_col:
-
-                                with st.popover(
-                                    "🔍 Check photo",
-                                    width="stretch",
-                                ):
-
-                                    st.caption(
-                                        selected_image_name
-                                    )
-
-                                    st.image(
-                                        selected_image,
-                                        width="stretch",
-                                    )
-
-
-                            with photo_col:
-
-                                if len(image_options) == 2:
-
-                                    st.caption(
-                                        f"{image_options.index(selected_image_name) + 1}"
-                                        f"/{len(image_options)}"
-                                    )
-
 
                     # =================================================
-                    # ARTICLE
+                    # ARTICLE NAME
                     # =================================================
 
                     st.markdown(
@@ -757,42 +1151,21 @@ with catalogue_col:
 
 
                     # =================================================
-                    # BASIC DETAILS
+                    # VIEW DETAILS
                     # =================================================
 
-                    st.write(
-                        f"**Colour:** "
-                        f"{product.get('color', '-')}"
-                    )
-
-
-                    st.write(
-                        f"**Thickness:** "
-                        f"{product.get('thickness', '-')}"
-                    )
-
-
-                    # =================================================
-                    # MORE DETAILS
-                    # =================================================
-
-                    with st.expander(
-                        "View details"
+                    if st.button(
+                        "View details",
+                        key=(
+                            f"details_"
+                            f"{product.get('leather_id')}"
+                        ),
+                        width="stretch",
+                        icon=":material/zoom_in:",
                     ):
 
-                        st.write(
-                            f"**Animal:** "
-                            f"{product.get('animal', '-')}"
-                        )
-
-                        st.write(
-                            f"**Tannage:** "
-                            f"{product.get('tannage', '-')}"
-                        )
-
-                        st.write(
-                            f"**Origin:** "
-                            f"{product.get('origin', '-')}"
+                        show_product_details(
+                            product
                         )
 
 
