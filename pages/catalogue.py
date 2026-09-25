@@ -4,6 +4,7 @@ from urllib.parse import quote
 from io import BytesIO
 from urllib.request import urlopen
 import base64
+import html
 
 from PIL import Image, ImageOps
 
@@ -14,7 +15,7 @@ from PIL import Image, ImageOps
 
 st.set_page_config(
     page_title="Leather Catalogue",
-    page_icon="👜",
+    page_icon="🧥",
     layout="wide",
 )
 
@@ -64,7 +65,10 @@ def get_image_url(filename):
 # LOAD PRODUCTS
 # =========================================================
 
-@st.cache_data(ttl=300)
+@st.cache_data(
+    ttl=300,
+    show_spinner=False,
+)
 def load_products():
 
     response = (
@@ -98,8 +102,12 @@ try:
 
 except Exception as e:
 
-    st.error("Unable to load the leather catalogue.")
+    st.error(
+        "Unable to load the leather catalogue."
+    )
+
     st.exception(e)
+
     st.stop()
 
 
@@ -107,16 +115,20 @@ except Exception as e:
 # IMAGE SETTINGS
 # =========================================================
 
-# Fixed catalogue-card ratio.
+# Catalogue cards
 CARD_SIZE = (1200, 675)
 
 
-# Interactive viewer height.
-VIEWER_HEIGHT = 650
+# Detail viewer.
+#
+# This is intentionally lower than before so that
+# the photo + complete information fit inside the
+# dialog without unnecessary vertical scrolling.
+DETAIL_VIEWER_HEIGHT = 500
 
 
 # =========================================================
-# DOWNLOAD ORIGINAL IMAGE
+# DOWNLOAD IMAGE
 # =========================================================
 
 @st.cache_data(
@@ -162,14 +174,13 @@ def image_to_base64(image):
     image.save(
         buffer,
         format="JPEG",
-        quality=95,
+        quality=92,
+        optimize=True,
     )
 
-    encoded = base64.b64encode(
+    return base64.b64encode(
         buffer.getvalue()
     ).decode("utf-8")
-
-    return encoded
 
 
 # =========================================================
@@ -211,21 +222,425 @@ def make_card_image(image):
 
 
 # =========================================================
-# INTERACTIVE IMAGE VIEWER
+# AUTO SLIDING CATALOGUE PHOTO
 #
-# Features:
-#   - Mouse wheel zoom
-#   - Click + drag pan
-#   - Double click reset
-#   - + / - controls
-#   - Reset button
-#   - Zoom around mouse cursor
+# Main photo
+#     ↓
+# 5 seconds
+#     ↓
+# Close-up
+#     ↓
+# 5 seconds
+#     ↓
+# Main photo
+#
+# No Streamlit rerun is required.
 # =========================================================
 
-def interactive_image_viewer(
+def auto_slide_image(
+    main_url,
+    closeup_url,
+    height=220,
+    key="",
+):
+
+    if not main_url and not closeup_url:
+
+        st.info(
+            "Image unavailable"
+        )
+
+        return
+
+
+    # -----------------------------------------------------
+    # ONLY MAIN PHOTO
+    # -----------------------------------------------------
+
+    if main_url and not closeup_url:
+
+        safe_main_url = html.escape(
+            main_url,
+            quote=True,
+        )
+
+        iframe_html = f"""
+        <!DOCTYPE html>
+
+        <html>
+
+        <head>
+
+        <style>
+
+        html,
+        body {{
+            margin: 0;
+            padding: 0;
+
+            width: 100%;
+            height: 100%;
+
+            overflow: hidden;
+
+            background: white;
+        }}
+
+        .photo {{
+            width: 100%;
+            height: 100%;
+
+            display: flex;
+
+            align-items: center;
+            justify-content: center;
+
+            overflow: hidden;
+
+            background: white;
+        }}
+
+        img {{
+            width: 100%;
+            height: 100%;
+
+            object-fit: contain;
+
+            display: block;
+        }}
+
+        </style>
+
+        </head>
+
+        <body>
+
+        <div class="photo">
+
+            <img
+                src="{safe_main_url}"
+                alt="Leather photo"
+            >
+
+        </div>
+
+        </body>
+
+        </html>
+        """
+
+        st.iframe(
+            iframe_html,
+            height=height,
+        )
+
+        return
+
+
+    # -----------------------------------------------------
+    # MAIN + CLOSE-UP
+    # -----------------------------------------------------
+
+    safe_main_url = html.escape(
+        main_url,
+        quote=True,
+    )
+
+    safe_closeup_url = html.escape(
+        closeup_url,
+        quote=True,
+    )
+
+
+    iframe_html = f"""
+    <!DOCTYPE html>
+
+    <html>
+
+    <head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width,
+                 initial-scale=1.0"
+    >
+
+    <style>
+
+    * {{
+        box-sizing: border-box;
+    }}
+
+
+    html,
+    body {{
+
+        margin: 0;
+        padding: 0;
+
+        width: 100%;
+        height: 100%;
+
+        overflow: hidden;
+
+        background: white;
+    }}
+
+
+    .slider {{
+
+        position: relative;
+
+        width: 100%;
+        height: 100%;
+
+        overflow: hidden;
+
+        background: white;
+    }}
+
+
+    .slide {{
+
+        position: absolute;
+
+        inset: 0;
+
+        width: 100%;
+        height: 100%;
+
+        display: flex;
+
+        align-items: center;
+        justify-content: center;
+
+        opacity: 0;
+
+        transition:
+            opacity 0.8s ease-in-out;
+    }}
+
+
+    .slide.active {{
+
+        opacity: 1;
+    }}
+
+
+    .slide img {{
+
+        width: 100%;
+        height: 100%;
+
+        object-fit: contain;
+
+        display: block;
+    }}
+
+
+    .photo-label {{
+
+        position: absolute;
+
+        right: 10px;
+        bottom: 10px;
+
+        padding:
+            4px 8px;
+
+        border-radius: 5px;
+
+        background:
+            rgba(
+                0,
+                0,
+                0,
+                0.60
+            );
+
+        color: white;
+
+        font-size: 10px;
+
+        z-index: 5;
+
+        opacity: 0;
+
+        transition:
+            opacity 0.4s ease;
+    }}
+
+
+    .slider:hover .photo-label {{
+
+        opacity: 1;
+    }}
+
+
+    </style>
+
+    </head>
+
+
+    <body>
+
+
+    <div
+        class="slider"
+        id="slider"
+    >
+
+
+        <div
+            class="slide active"
+            id="mainSlide"
+        >
+
+            <img
+                src="{safe_main_url}"
+                alt="Main leather photo"
+            >
+
+        </div>
+
+
+        <div
+            class="slide"
+            id="closeupSlide"
+        >
+
+            <img
+                src="{safe_closeup_url}"
+                alt="Leather close-up photo"
+            >
+
+        </div>
+
+
+        <div
+            class="photo-label"
+            id="photoLabel"
+        >
+            Main
+        </div>
+
+
+    </div>
+
+
+    <script>
+
+    let showingMain = true;
+
+
+    const mainSlide =
+        document.getElementById(
+            "mainSlide"
+        );
+
+
+    const closeupSlide =
+        document.getElementById(
+            "closeupSlide"
+        );
+
+
+    const photoLabel =
+        document.getElementById(
+            "photoLabel"
+        );
+
+
+    function switchPhoto() {{
+
+        showingMain =
+            !showingMain;
+
+
+        if (showingMain) {{
+
+            mainSlide.classList.add(
+                "active"
+            );
+
+            closeupSlide.classList.remove(
+                "active"
+            );
+
+            photoLabel.textContent =
+                "Main";
+
+        }} else {{
+
+            mainSlide.classList.remove(
+                "active"
+            );
+
+            closeupSlide.classList.add(
+                "active"
+            );
+
+            photoLabel.textContent =
+                "Close-up";
+        }}
+    }}
+
+
+    // ---------------------------------------------------
+    // CHANGE EVERY 5 SECONDS
+    // ---------------------------------------------------
+
+    setInterval(
+        switchPhoto,
+        5000
+    );
+
+
+    </script>
+
+
+    </body>
+
+    </html>
+    """
+
+
+    st.iframe(
+        iframe_html,
+        height=height,
+    )
+
+
+# =========================================================
+# PROFESSIONAL INTERACTIVE DETAIL VIEWER
+#
+# IMPORTANT:
+#
+# Initial state = COMPLETE PHOTO FITTED.
+#
+# It is NOT zoomed initially.
+#
+# Mouse wheel:
+#     Zoom in / out
+#
+# Mouse drag:
+#     Move in every direction
+#
+# Double click:
+#     Reset
+#
+# + / -:
+#     Zoom
+#
+# Reset:
+#     Fit photo back to screen
+# =========================================================
+
+def interactive_detail_viewer(
     image,
-    height=650,
-    key="image_viewer",
+    height=DETAIL_VIEWER_HEIGHT,
 ):
 
     if image is None:
@@ -236,7 +651,11 @@ def interactive_image_viewer(
 
         return
 
-    image_base64 = image_to_base64(image)
+
+    image_base64 = image_to_base64(
+        image
+    )
+
 
     if not image_base64:
 
@@ -246,979 +665,1313 @@ def interactive_image_viewer(
 
         return
 
-    html = f"""
-<!DOCTYPE html>
 
-<html>
+    viewer_html = f"""
+    <!DOCTYPE html>
 
-<head>
+    <html>
 
-<meta charset="UTF-8">
+    <head>
 
-<meta name="viewport"
-      content="width=device-width,
-               initial-scale=1.0">
+    <meta charset="UTF-8">
 
-<style>
+    <meta
+        name="viewport"
+        content="width=device-width,
+                 initial-scale=1.0"
+    >
 
-* {{
-    box-sizing: border-box;
-}}
 
-html,
-body {{
+    <style>
 
-    margin: 0;
-    padding: 0;
+    * {{
+        box-sizing: border-box;
+    }}
 
-    width: 100%;
-    height: 100%;
 
-    overflow: hidden;
+    html,
+    body {{
 
-    background: #111;
+        margin: 0;
+        padding: 0;
 
-    font-family:
-        -apple-system,
-        BlinkMacSystemFont,
-        "Segoe UI",
-        sans-serif;
-}}
+        width: 100%;
+        height: 100%;
 
+        overflow: hidden;
 
-/* =====================================================
-   VIEWER
-   ===================================================== */
+        background: #111;
+    }}
 
-.viewer {{
 
-    position: relative;
+    /* ===================================================
+       VIEWER
+       =================================================== */
 
-    width: 100%;
+    #viewer {{
 
-    height: {height}px;
+        position: relative;
 
-    overflow: hidden;
+        width: 100%;
+        height: {height}px;
 
-    background:
-        #111;
+        overflow: hidden;
 
-    border-radius: 10px;
+        background: #111;
 
-    border:
-        1px solid rgba(
-            255,
-            255,
-            255,
-            0.12
-        );
+        border-radius: 10px;
 
-    user-select: none;
+        border:
+            1px solid
+            rgba(
+                255,
+                255,
+                255,
+                0.14
+            );
 
-    touch-action: none;
+        cursor: grab;
 
-    cursor: grab;
-}}
+        user-select: none;
 
+        touch-action: none;
+    }}
 
-/* =====================================================
-   IMAGE
-   ===================================================== */
 
-.viewer-image {{
+    #viewer.dragging {{
 
-    position: absolute;
+        cursor: grabbing;
+    }}
 
-    left: 50%;
-    top: 50%;
 
-    max-width: none;
-    max-height: none;
+    /* ===================================================
+       IMAGE
+       =================================================== */
 
-    width: auto;
-    height: auto;
+    #photo {{
 
-    transform-origin: center center;
+        position: absolute;
 
-    will-change:
-        transform;
+        left: 50%;
+        top: 50%;
 
-    pointer-events: none;
+        display: block;
 
-    user-select: none;
+        max-width: none;
+        max-height: none;
 
-    -webkit-user-drag: none;
+        transform-origin:
+            center center;
 
-    image-rendering:
-        auto;
-}}
+        pointer-events: none;
 
+        user-select: none;
 
-/* =====================================================
-   DRAGGING
-   ===================================================== */
+        -webkit-user-drag: none;
 
-.viewer.dragging {{
+        will-change:
+            transform;
+    }}
 
-    cursor: grabbing;
-}}
 
+    /* ===================================================
+       CONTROLS
+       =================================================== */
 
-/* =====================================================
-   CONTROLS
-   ===================================================== */
+    .controls {{
 
-.controls {{
+        position: absolute;
 
-    position: absolute;
+        top: 12px;
+        right: 12px;
 
-    top: 14px;
-    right: 14px;
+        z-index: 10;
 
-    display: flex;
+        display: flex;
 
-    gap: 6px;
+        gap: 5px;
+    }}
 
-    z-index: 20;
-}}
 
+    .control {{
 
-.control-button {{
+        min-width: 38px;
+        height: 38px;
 
-    width: 38px;
-    height: 38px;
+        padding:
+            0 10px;
 
-    border: 0;
+        border: none;
 
-    border-radius: 8px;
+        border-radius: 8px;
 
-    background:
-        rgba(
-            25,
-            25,
-            25,
-            0.82
-        );
+        background:
+            rgba(
+                20,
+                20,
+                20,
+                0.85
+            );
 
-    color: white;
+        color: white;
 
-    font-size: 20px;
+        font-size: 18px;
 
-    font-weight: 500;
+        font-weight: 600;
 
-    cursor: pointer;
+        cursor: pointer;
 
-    display: flex;
+        backdrop-filter:
+            blur(8px);
+    }}
 
-    align-items: center;
 
-    justify-content: center;
+    .control:hover {{
 
-    backdrop-filter:
-        blur(8px);
+        background:
+            rgba(
+                55,
+                55,
+                55,
+                0.95
+            );
+    }}
 
-    box-shadow:
-        0 2px 8px
-        rgba(
-            0,
-            0,
-            0,
-            0.25
-        );
-}}
 
+    .reset {{
 
-.control-button:hover {{
+        font-size: 12px;
+    }}
 
-    background:
-        rgba(
-            55,
-            55,
-            55,
-            0.95
-        );
-}}
 
+    /* ===================================================
+       ZOOM LABEL
+       =================================================== */
 
-/* =====================================================
-   RESET BUTTON
-   ===================================================== */
+    #zoomLabel {{
 
-.reset-button {{
+        position: absolute;
 
-    padding:
-        0 12px;
+        left: 12px;
+        bottom: 12px;
 
-    width: auto;
+        z-index: 10;
 
-    font-size: 13px;
-}}
+        padding:
+            5px 9px;
 
+        border-radius: 6px;
 
-/* =====================================================
-   ZOOM LABEL
-   ===================================================== */
+        background:
+            rgba(
+                20,
+                20,
+                20,
+                0.78
+            );
 
-.zoom-label {{
+        color:
+            rgba(
+                255,
+                255,
+                255,
+                0.90
+            );
 
-    position: absolute;
+        font-size: 11px;
+    }}
 
-    left: 14px;
-    bottom: 14px;
 
-    padding:
-        6px 10px;
+    /* ===================================================
+       HELP
+       =================================================== */
 
-    border-radius: 7px;
+    #help {{
 
-    background:
-        rgba(
-            20,
-            20,
-            20,
-            0.78
-        );
+        position: absolute;
 
-    color: white;
+        left: 50%;
+        bottom: 12px;
 
-    font-size: 12px;
+        transform:
+            translateX(-50%);
 
-    z-index: 20;
+        z-index: 10;
 
-    backdrop-filter:
-        blur(8px);
-}}
+        padding:
+            5px 10px;
 
+        border-radius: 6px;
 
-/* =====================================================
-   HELP TEXT
-   ===================================================== */
+        background:
+            rgba(
+                20,
+                20,
+                20,
+                0.70
+            );
 
-.help-text {{
+        color:
+            rgba(
+                255,
+                255,
+                255,
+                0.80
+            );
 
-    position: absolute;
+        font-size: 11px;
 
-    left: 50%;
+        pointer-events: none;
+    }}
 
-    bottom: 14px;
 
-    transform:
-        translateX(-50%);
+    </style>
 
-    padding:
-        6px 12px;
+    </head>
 
-    border-radius: 7px;
 
-    background:
-        rgba(
-            20,
-            20,
-            20,
-            0.70
-        );
+    <body>
 
-    color:
-        rgba(
-            255,
-            255,
-            255,
-            0.85
-        );
-
-    font-size: 12px;
-
-    z-index: 20;
-
-    pointer-events: none;
-
-    backdrop-filter:
-        blur(8px);
-}}
-
-
-</style>
-
-</head>
-
-
-<body>
-
-
-<div
-    id="viewer"
-    class="viewer"
->
-
-
-    <!-- =================================================
-         CONTROLS
-         ================================================= -->
-
-    <div class="controls">
-
-        <button
-            id="zoomOut"
-            class="control-button"
-            title="Zoom out"
-        >
-            −
-        </button>
-
-
-        <button
-            id="zoomIn"
-            class="control-button"
-            title="Zoom in"
-        >
-            +
-        </button>
-
-
-        <button
-            id="reset"
-            class="control-button reset-button"
-            title="Reset photo"
-        >
-            Reset
-        </button>
-
-    </div>
-
-
-    <!-- =================================================
-         IMAGE
-         ================================================= -->
-
-    <img
-        id="image"
-        class="viewer-image"
-        src="data:image/jpeg;base64,{image_base64}"
-        draggable="false"
-    />
-
-
-    <!-- =================================================
-         ZOOM LABEL
-         ================================================= -->
 
     <div
-        id="zoomLabel"
-        class="zoom-label"
+        id="viewer"
     >
-        100%
+
+
+        <!-- =========================================
+             CONTROLS
+             ========================================= -->
+
+        <div
+            class="controls"
+        >
+
+            <button
+                id="zoomOut"
+                class="control"
+                title="Zoom out"
+            >
+                −
+            </button>
+
+
+            <button
+                id="zoomIn"
+                class="control"
+                title="Zoom in"
+            >
+                +
+            </button>
+
+
+            <button
+                id="reset"
+                class="control reset"
+                title="Fit photo"
+            >
+                Fit
+            </button>
+
+        </div>
+
+
+        <!-- =========================================
+             PHOTO
+             ========================================= -->
+
+        <img
+            id="photo"
+            src="data:image/jpeg;base64,{image_base64}"
+            draggable="false"
+            alt="Leather photo"
+        >
+
+
+        <!-- =========================================
+             ZOOM LABEL
+             ========================================= -->
+
+        <div id="zoomLabel">
+            100%
+        </div>
+
+
+        <!-- =========================================
+             HELP
+             ========================================= -->
+
+        <div id="help">
+
+            Scroll to zoom
+            •
+            Drag to move
+            •
+            Double-click to fit
+
+        </div>
+
+
     </div>
 
 
-    <!-- =================================================
-         HELP
-         ================================================= -->
-
-    <div
-        class="help-text"
-    >
-        Scroll to zoom • Drag to move • Double-click to reset
-    </div>
+    <script>
 
 
-</div>
+    // =================================================
+    // ELEMENTS
+    // =================================================
+
+    const viewer =
+        document.getElementById(
+            "viewer"
+        );
 
 
-<script>
+    const photo =
+        document.getElementById(
+            "photo"
+        );
 
 
-// =======================================================
-// ELEMENTS
-// =======================================================
-
-const viewer =
-    document.getElementById(
-        "viewer"
-    );
+    const zoomLabel =
+        document.getElementById(
+            "zoomLabel"
+        );
 
 
-const image =
-    document.getElementById(
-        "image"
-    );
+    const zoomIn =
+        document.getElementById(
+            "zoomIn"
+        );
 
 
-const zoomLabel =
-    document.getElementById(
-        "zoomLabel"
-    );
+    const zoomOut =
+        document.getElementById(
+            "zoomOut"
+        );
 
 
-const zoomIn =
-    document.getElementById(
-        "zoomIn"
-    );
+    const resetButton =
+        document.getElementById(
+            "reset"
+        );
 
 
-const zoomOut =
-    document.getElementById(
-        "zoomOut"
-    );
+    // =================================================
+    // STATE
+    // =================================================
+
+    let baseScale = 1;
+
+    let scale = 1;
+
+    let translateX = 0;
+
+    let translateY = 0;
 
 
-const resetButton =
-    document.getElementById(
-        "reset"
-    );
+    let imageWidth = 0;
+
+    let imageHeight = 0;
 
 
-// =======================================================
-// STATE
-// =======================================================
+    let dragging = false;
 
-let scale = 1;
+    let startX = 0;
 
-let translateX = 0;
+    let startY = 0;
 
-let translateY = 0;
+    let startTranslateX = 0;
 
-
-let dragging = false;
-
-let startX = 0;
-
-let startY = 0;
-
-let startTranslateX = 0;
-
-let startTranslateY = 0;
+    let startTranslateY = 0;
 
 
-// =======================================================
-// LIMITS
-// =======================================================
+    const MIN_ZOOM = 0.5;
 
-const MIN_SCALE = 0.5;
-
-const MAX_SCALE = 8.0;
+    const MAX_ZOOM = 8;
 
 
-// =======================================================
-// UPDATE LABEL
-// =======================================================
+    // =================================================
+    // GET VIEWER SIZE
+    // =================================================
 
-function updateLabel() {{
+    function viewerSize() {{
 
-    zoomLabel.textContent =
-        Math.round(
-            scale * 100
-        ) + "%";
-}}
+        return {{
+            width:
+                viewer.clientWidth,
 
-
-// =======================================================
-// APPLY TRANSFORM
-// =======================================================
-
-function applyTransform() {{
-
-    image.style.transform =
-        "translate(-50%, -50%) " +
-        "translate(" +
-        translateX +
-        "px, " +
-        translateY +
-        "px) " +
-        "scale(" +
-        scale +
-        ")";
-
-    updateLabel();
-}}
+            height:
+                viewer.clientHeight
+        }};
+    }}
 
 
-// =======================================================
-// RESET
-// =======================================================
+    // =================================================
+    // CLAMP PAN
+    // =================================================
 
-function resetViewer() {{
+    function clampPan() {{
 
-    scale = 1;
-
-    translateX = 0;
-
-    translateY = 0;
-
-    applyTransform();
-}}
+        const size =
+            viewerSize();
 
 
-// =======================================================
-// ZOOM
-// =======================================================
+        const renderedWidth =
+            imageWidth * scale;
 
-function zoomAt(
-    newScale,
-    mouseX,
-    mouseY
-) {{
 
-    newScale =
-        Math.max(
-            MIN_SCALE,
+        const renderedHeight =
+            imageHeight * scale;
+
+
+        const maxX =
+            Math.max(
+                0,
+                (
+                    renderedWidth -
+                    size.width
+                ) / 2
+            );
+
+
+        const maxY =
+            Math.max(
+                0,
+                (
+                    renderedHeight -
+                    size.height
+                ) / 2
+            );
+
+
+        translateX =
+            Math.max(
+                -maxX,
+                Math.min(
+                    maxX,
+                    translateX
+                )
+            );
+
+
+        translateY =
+            Math.max(
+                -maxY,
+                Math.min(
+                    maxY,
+                    translateY
+                )
+            );
+    }}
+
+
+    // =================================================
+    // UPDATE LABEL
+    // =================================================
+
+    function updateLabel() {{
+
+        const relativeZoom =
+            scale / baseScale;
+
+
+        zoomLabel.textContent =
+            Math.round(
+                relativeZoom * 100
+            ) + "%";
+    }}
+
+
+    // =================================================
+    // APPLY TRANSFORM
+    // =================================================
+
+    function applyTransform() {{
+
+        clampPan();
+
+
+        photo.style.transform =
+            "translate(-50%, -50%) " +
+            "translate(" +
+            translateX +
+            "px, " +
+            translateY +
+            "px) " +
+            "scale(" +
+            scale +
+            ")";
+
+
+        updateLabel();
+    }}
+
+
+    // =================================================
+    // FIT PHOTO
+    // =================================================
+
+    function fitPhoto() {{
+
+        const size =
+            viewerSize();
+
+
+        if (
+            imageWidth <= 0 ||
+            imageHeight <= 0
+        ) {{
+
+            return;
+        }}
+
+
+        // IMPORTANT:
+        //
+        // Fit entire original image
+        // inside the viewer.
+        //
+        // This fixes the previous
+        // "already zoomed" problem.
+
+        const widthScale =
+            (
+                size.width - 20
+            ) / imageWidth;
+
+
+        const heightScale =
+            (
+                size.height - 20
+            ) / imageHeight;
+
+
+        baseScale =
             Math.min(
-                MAX_SCALE,
-                newScale
-            )
-        );
+                widthScale,
+                heightScale
+            );
 
 
-    if (
-        Math.abs(
-            newScale - scale
-        ) < 0.0001
+        baseScale =
+            Math.max(
+                0.01,
+                baseScale
+            );
+
+
+        scale =
+            baseScale;
+
+
+        translateX = 0;
+
+        translateY = 0;
+
+
+        applyTransform();
+    }}
+
+
+    // =================================================
+    // ZOOM AROUND CURSOR
+    // =================================================
+
+    function zoomAt(
+        requestedScale,
+        mouseX,
+        mouseY
     ) {{
 
-        return;
-    }}
+        const oldScale =
+            scale;
 
 
-    const rect =
-        viewer.getBoundingClientRect();
+        const newScale =
+            Math.max(
+                baseScale * MIN_ZOOM,
+                Math.min(
+                    baseScale *
+                    MAX_ZOOM,
+                    requestedScale
+                )
+            );
 
 
-    const centerX =
-        rect.width / 2;
+        if (
+            Math.abs(
+                newScale -
+                oldScale
+            ) < 0.0001
+        ) {{
+
+            return;
+        }}
 
 
-    const centerY =
-        rect.height / 2;
+        const size =
+            viewerSize();
 
 
-    // Position relative to
-    // viewer center.
-
-    const pointX =
-        mouseX - centerX;
-
-    const pointY =
-        mouseY - centerY;
+        const centerX =
+            size.width / 2;
 
 
-    const scaleRatio =
-        newScale / scale;
+        const centerY =
+            size.height / 2;
 
 
-    // Keep the point under
-    // the cursor fixed.
+        const pointX =
+            mouseX -
+            centerX;
 
-    translateX =
-        pointX -
-        (
+
+        const pointY =
+            mouseY -
+            centerY;
+
+
+        const ratio =
+            newScale /
+            oldScale;
+
+
+        translateX =
             pointX -
-            translateX
-        ) *
-        scaleRatio;
+            (
+                pointX -
+                translateX
+            ) *
+            ratio;
 
 
-    translateY =
-        pointY -
-        (
+        translateY =
             pointY -
-            translateY
-        ) *
-        scaleRatio;
-
-
-    scale = newScale;
-
-
-    applyTransform();
-}}
-
-
-// =======================================================
-// MOUSE WHEEL
-// =======================================================
-
-viewer.addEventListener(
-    "wheel",
-    function(event) {{
-
-        event.preventDefault();
-
-        event.stopPropagation();
-
-
-        const rect =
-            viewer.getBoundingClientRect();
-
-
-        const mouseX =
-            event.clientX -
-            rect.left;
-
-
-        const mouseY =
-            event.clientY -
-            rect.top;
-
-
-        let factor;
-
-
-        if (
-            event.deltaY < 0
-        ) {{
-
-            factor = 1.15;
-
-        }} else {{
-
-            factor = 0.87;
-
-        }}
-
-
-        zoomAt(
-            scale * factor,
-            mouseX,
-            mouseY
-        );
-
-    }},
-    {{
-        passive: false
-    }}
-);
-
-
-// =======================================================
-// MOUSE DOWN
-// =======================================================
-
-viewer.addEventListener(
-    "mousedown",
-    function(event) {{
-
-        // Only left mouse button.
-
-        if (
-            event.button !== 0
-        ) {{
-
-            return;
-        }}
-
-
-        // Do not start dragging
-        // when clicking buttons.
-
-        if (
-            event.target.tagName ===
-            "BUTTON"
-        ) {{
-
-            return;
-        }}
-
-
-        dragging = true;
-
-
-        viewer.classList.add(
-            "dragging"
-        );
-
-
-        startX =
-            event.clientX;
-
-
-        startY =
-            event.clientY;
-
-
-        startTranslateX =
-            translateX;
-
-
-        startTranslateY =
-            translateY;
-
-
-        event.preventDefault();
-
-    }}
-);
-
-
-// =======================================================
-// MOUSE MOVE
-// =======================================================
-
-window.addEventListener(
-    "mousemove",
-    function(event) {{
-
-        if (!dragging) {{
-
-            return;
-        }}
-
-
-        const dx =
-            event.clientX -
-            startX;
-
-
-        const dy =
-            event.clientY -
-            startY;
-
-
-        translateX =
-            startTranslateX +
-            dx;
-
-
-        translateY =
-            startTranslateY +
-            dy;
+            (
+                pointY -
+                translateY
+            ) *
+            ratio;
+
+
+        scale =
+            newScale;
 
 
         applyTransform();
-
     }}
-);
 
 
-// =======================================================
-// MOUSE UP
-// =======================================================
+    // =================================================
+    // MOUSE WHEEL
+    // =================================================
 
-window.addEventListener(
-    "mouseup",
-    function() {{
+    viewer.addEventListener(
+        "wheel",
+        function(event) {{
 
-        dragging = false;
+            event.preventDefault();
 
-        viewer.classList.remove(
-            "dragging"
-        );
-
-    }}
-);
+            event.stopPropagation();
 
 
-// =======================================================
-// DOUBLE CLICK RESET
-// =======================================================
+            const rect =
+                viewer.getBoundingClientRect();
 
-viewer.addEventListener(
-    "dblclick",
-    function(event) {{
 
-        if (
-            event.target.tagName ===
-            "BUTTON"
-        ) {{
+            const mouseX =
+                event.clientX -
+                rect.left;
 
-            return;
+
+            const mouseY =
+                event.clientY -
+                rect.top;
+
+
+            if (
+                event.deltaY < 0
+            ) {{
+
+                zoomAt(
+                    scale * 1.15,
+                    mouseX,
+                    mouseY
+                );
+
+            }} else {{
+
+                zoomAt(
+                    scale * 0.87,
+                    mouseX,
+                    mouseY
+                );
+            }}
+
+        }},
+        {{
+            passive: false
         }}
+    );
 
 
-        resetViewer();
+    // =================================================
+    // MOUSE DOWN
+    // =================================================
 
-    }}
-);
+    viewer.addEventListener(
+        "mousedown",
+        function(event) {{
 
+            if (
+                event.button !== 0
+            ) {{
 
-// =======================================================
-// BUTTON ZOOM IN
-// =======================================================
-
-zoomIn.addEventListener(
-    "click",
-    function(event) {{
-
-        event.stopPropagation();
-
-
-        const rect =
-            viewer.getBoundingClientRect();
+                return;
+            }}
 
 
-        zoomAt(
-            scale * 1.25,
-            rect.width / 2,
-            rect.height / 2
-        );
+            if (
+                event.target.tagName ===
+                "BUTTON"
+            ) {{
 
-    }}
-);
-
-
-// =======================================================
-// BUTTON ZOOM OUT
-// =======================================================
-
-zoomOut.addEventListener(
-    "click",
-    function(event) {{
-
-        event.stopPropagation();
+                return;
+            }}
 
 
-        const rect =
-            viewer.getBoundingClientRect();
+            dragging = true;
 
 
-        zoomAt(
-            scale * 0.8,
-            rect.width / 2,
-            rect.height / 2
-        );
-
-    }}
-);
+            viewer.classList.add(
+                "dragging"
+            );
 
 
-// =======================================================
-// RESET BUTTON
-// =======================================================
-
-resetButton.addEventListener(
-    "click",
-    function(event) {{
-
-        event.stopPropagation();
-
-        resetViewer();
-
-    }}
-);
+            startX =
+                event.clientX;
 
 
-// =======================================================
-// TOUCH SUPPORT
-// =======================================================
-
-let touchStartX = 0;
-
-let touchStartY = 0;
-
-let touchStartTranslateX = 0;
-
-let touchStartTranslateY = 0;
+            startY =
+                event.clientY;
 
 
-viewer.addEventListener(
-    "touchstart",
-    function(event) {{
+            startTranslateX =
+                translateX;
 
-        if (
-            event.touches.length !== 1
-        ) {{
 
-            return;
+            startTranslateY =
+                translateY;
+
+
+            event.preventDefault();
+
         }}
+    );
 
 
-        const touch =
-            event.touches[0];
+    // =================================================
+    // MOUSE MOVE
+    // =================================================
+
+    window.addEventListener(
+        "mousemove",
+        function(event) {{
+
+            if (!dragging) {{
+
+                return;
+            }}
 
 
-        touchStartX =
-            touch.clientX;
+            translateX =
+                startTranslateX +
+                (
+                    event.clientX -
+                    startX
+                );
 
 
-        touchStartY =
-            touch.clientY;
+            translateY =
+                startTranslateY +
+                (
+                    event.clientY -
+                    startY
+                );
 
 
-        touchStartTranslateX =
-            translateX;
+            applyTransform();
 
-
-        touchStartTranslateY =
-            translateY;
-
-    }},
-    {{
-        passive: true
-    }}
-);
-
-
-viewer.addEventListener(
-    "touchmove",
-    function(event) {{
-
-        if (
-            event.touches.length !== 1
-        ) {{
-
-            return;
         }}
+    );
 
 
-        const touch =
-            event.touches[0];
+    // =================================================
+    // MOUSE UP
+    // =================================================
+
+    window.addEventListener(
+        "mouseup",
+        function() {{
+
+            dragging = false;
+
+            viewer.classList.remove(
+                "dragging"
+            );
+
+        }}
+    );
 
 
-        translateX =
-            touch.clientX -
-            touchStartX +
-            touchStartTranslateX;
+    // =================================================
+    // DOUBLE CLICK
+    // =================================================
+
+    viewer.addEventListener(
+        "dblclick",
+        function(event) {{
+
+            if (
+                event.target.tagName ===
+                "BUTTON"
+            ) {{
+
+                return;
+            }}
 
 
-        translateY =
-            touch.clientY -
-            touchStartY +
-            touchStartTranslateY;
+            fitPhoto();
+
+        }}
+    );
 
 
-        applyTransform();
+    // =================================================
+    // ZOOM IN
+    // =================================================
+
+    zoomIn.addEventListener(
+        "click",
+        function(event) {{
+
+            event.stopPropagation();
 
 
-        event.preventDefault();
-
-    }},
-    {{
-        passive: false
-    }}
-);
+            const size =
+                viewerSize();
 
 
-// =======================================================
-// IMAGE LOAD
-// =======================================================
+            zoomAt(
+                scale * 1.25,
+                size.width / 2,
+                size.height / 2
+            );
 
-image.addEventListener(
-    "load",
-    function() {{
-
-        resetViewer();
-
-    }}
-);
+        }}
+    );
 
 
-// =======================================================
-// INITIALIZE
-// =======================================================
+    // =================================================
+    // ZOOM OUT
+    // =================================================
 
-resetViewer();
+    zoomOut.addEventListener(
+        "click",
+        function(event) {{
+
+            event.stopPropagation();
 
 
-</script>
+            const size =
+                viewerSize();
 
-</body>
 
-</html>
-"""
+            zoomAt(
+                scale * 0.8,
+                size.width / 2,
+                size.height / 2
+            );
 
-    st.components.v1.html(
-        html,
+        }}
+    );
+
+
+    // =================================================
+    // FIT BUTTON
+    // =================================================
+
+    resetButton.addEventListener(
+        "click",
+        function(event) {{
+
+            event.stopPropagation();
+
+            fitPhoto();
+
+        }}
+    );
+
+
+    // =================================================
+    // TOUCH DRAG
+    // =================================================
+
+    let touchStartX = 0;
+
+    let touchStartY = 0;
+
+    let touchStartTranslateX = 0;
+
+    let touchStartTranslateY = 0;
+
+
+    viewer.addEventListener(
+        "touchstart",
+        function(event) {{
+
+            if (
+                event.touches.length !== 1
+            ) {{
+
+                return;
+            }}
+
+
+            const touch =
+                event.touches[0];
+
+
+            touchStartX =
+                touch.clientX;
+
+
+            touchStartY =
+                touch.clientY;
+
+
+            touchStartTranslateX =
+                translateX;
+
+
+            touchStartTranslateY =
+                translateY;
+
+        }},
+        {{
+            passive: true
+        }}
+    );
+
+
+    viewer.addEventListener(
+        "touchmove",
+        function(event) {{
+
+            if (
+                event.touches.length !== 1
+            ) {{
+
+                return;
+            }}
+
+
+            const touch =
+                event.touches[0];
+
+
+            translateX =
+                touch.clientX -
+                touchStartX +
+                touchStartTranslateX;
+
+
+            translateY =
+                touch.clientY -
+                touchStartY +
+                touchStartTranslateY;
+
+
+            applyTransform();
+
+
+            event.preventDefault();
+
+        }},
+        {{
+            passive: false
+        }}
+    );
+
+
+    // =================================================
+    // IMAGE LOADED
+    // =================================================
+
+    photo.addEventListener(
+        "load",
+        function() {{
+
+            imageWidth =
+                photo.naturalWidth;
+
+
+            imageHeight =
+                photo.naturalHeight;
+
+
+            photo.style.width =
+                imageWidth + "px";
+
+
+            photo.style.height =
+                imageHeight + "px";
+
+
+            // THIS IS THE IMPORTANT PART:
+            //
+            // The first display is FIT TO VIEWER.
+            //
+            // It does NOT start at 100% native size.
+
+            fitPhoto();
+
+        }}
+    );
+
+
+    // =================================================
+    // WINDOW RESIZE
+    // =================================================
+
+    window.addEventListener(
+        "resize",
+        function() {{
+
+            fitPhoto();
+
+        }}
+    );
+
+
+    </script>
+
+
+    </body>
+
+    </html>
+    """
+
+
+    st.iframe(
+        viewer_html,
         height=height,
-        scrolling=False,
     )
+
+
+# =========================================================
+# DETAIL INFORMATION
+#
+# Compact layout so everything fits in the same view.
+# =========================================================
+
+def show_detail_information(
+    product,
+    main_image,
+    closeup_image,
+):
+
+    leather_id = str(
+        product.get("leather_id")
+        or "-"
+    )
+
+    article_name = str(
+        product.get("article_name")
+        or "-"
+    )
+
+    color = str(
+        product.get("color")
+        or "-"
+    )
+
+    thickness = str(
+        product.get("thickness")
+        or "-"
+    )
+
+    animal = str(
+        product.get("animal")
+        or "-"
+    )
+
+    tannage = str(
+        product.get("tannage")
+        or "-"
+    )
+
+    origin = str(
+        product.get("origin")
+        or "-"
+    )
+
+
+    st.markdown(
+        "### Product Information"
+    )
+
+
+    # =====================================================
+    # ROW 1
+    # =====================================================
+
+    col1, col2 = st.columns(
+        2,
+        gap="medium",
+    )
+
+
+    with col1:
+
+        st.caption(
+            "Leather ID"
+        )
+
+        st.write(
+            leather_id
+        )
+
+
+    with col2:
+
+        st.caption(
+            "Article Name"
+        )
+
+        st.write(
+            article_name
+        )
+
+
+    # =====================================================
+    # ROW 2
+    # =====================================================
+
+    col1, col2 = st.columns(
+        2,
+        gap="medium",
+    )
+
+
+    with col1:
+
+        st.caption(
+            "Colour"
+        )
+
+        st.write(
+            color
+        )
+
+
+    with col2:
+
+        st.caption(
+            "Thickness"
+        )
+
+        st.write(
+            thickness
+        )
+
+
+    # =====================================================
+    # ROW 3
+    # =====================================================
+
+    col1, col2 = st.columns(
+        2,
+        gap="medium",
+    )
+
+
+    with col1:
+
+        st.caption(
+            "Animal"
+        )
+
+        st.write(
+            animal
+        )
+
+
+    with col2:
+
+        st.caption(
+            "Tannage"
+        )
+
+        st.write(
+            tannage
+        )
+
+
+    # =====================================================
+    # ROW 4
+    # =====================================================
+
+    col1, col2 = st.columns(
+        2,
+        gap="medium",
+    )
+
+
+    with col1:
+
+        st.caption(
+            "Origin"
+        )
+
+        st.write(
+            origin
+        )
+
+
+    with col2:
+
+        st.caption(
+            "Photos"
+        )
+
+        if (
+            main_image is not None
+            and closeup_image is not None
+        ):
+
+            st.write(
+                "Main + Close-up"
+            )
+
+        elif main_image is not None:
+
+            st.write(
+                "Main only"
+            )
+
+        elif closeup_image is not None:
+
+            st.write(
+                "Close-up only"
+            )
+
+        else:
+
+            st.write(
+                "No photos"
+            )
 
 
 # =========================================================
@@ -1242,9 +1995,11 @@ def show_product_details(product):
         or "-"
     )
 
+
     main_url = get_image_url(
         product.get("main_photo")
     )
+
 
     closeup_url = get_image_url(
         product.get("closeup_photo")
@@ -1261,6 +2016,7 @@ def show_product_details(product):
         else None
     )
 
+
     closeup_image = (
         load_image(closeup_url)
         if closeup_url
@@ -1269,7 +2025,7 @@ def show_product_details(product):
 
 
     # =====================================================
-    # AVAILABLE PHOTOS
+    # PHOTO OPTIONS
     # =====================================================
 
     photo_options = []
@@ -1290,17 +2046,22 @@ def show_product_details(product):
 
 
     # =====================================================
-    # PHOTO SELECTION
+    # PHOTO SELECTOR
     # =====================================================
 
     if len(photo_options) == 2:
 
-        selected_photo = st.segmented_control(
-            "Photo",
-            photo_options,
-            default="Main",
-            width="stretch",
-            key=f"detail_photo_{leather_id}",
+        selected_photo = (
+            st.segmented_control(
+                "Photo",
+                photo_options,
+                default="Main",
+                width="stretch",
+                key=(
+                    f"detail_photo_"
+                    f"{leather_id}"
+                ),
+            )
         )
 
     elif len(photo_options) == 1:
@@ -1315,7 +2076,7 @@ def show_product_details(product):
 
 
     # =====================================================
-    # SELECT IMAGE
+    # SELECT CURRENT IMAGE
     # =====================================================
 
     if selected_photo == "Close-up":
@@ -1332,17 +2093,22 @@ def show_product_details(product):
 
 
     # =====================================================
-    # MAIN DETAIL LAYOUT
+    # MAIN DIALOG LAYOUT
+    #
+    # Photo = left
+    # Information = right
     # =====================================================
 
-    photo_col, details_col = st.columns(
-        [1.55, 1],
-        gap="large",
+    photo_col, details_col = (
+        st.columns(
+            [1.65, 1],
+            gap="large",
+        )
     )
 
 
     # =====================================================
-    # LEFT SIDE — PHOTO
+    # PHOTO
     # =====================================================
 
     with photo_col:
@@ -1360,164 +2126,43 @@ def show_product_details(product):
 
         else:
 
-            # ---------------------------------------------
-            # INTERACTIVE IMAGE
-            # ---------------------------------------------
-
-            interactive_image_viewer(
+            interactive_detail_viewer(
                 selected_image,
-                height=VIEWER_HEIGHT,
-                key=(
-                    f"viewer_"
-                    f"{leather_id}_"
-                    f"{selected_photo}"
-                ),
+                height=DETAIL_VIEWER_HEIGHT,
             )
 
 
             st.caption(
-                "Scroll mouse wheel to zoom • "
-                "Click and drag to move • "
-                "Double-click to reset"
+                "Scroll to zoom • "
+                "Drag to move • "
+                "Double-click or Fit to reset"
             )
 
 
     # =====================================================
-    # RIGHT SIDE — DETAILS
+    # INFORMATION
     # =====================================================
 
     with details_col:
 
-        st.markdown(
-            "### Product Information"
+        show_detail_information(
+            product,
+            main_image,
+            closeup_image,
         )
-
-        st.divider()
-
-
-        # -------------------------------------------------
-        # LEATHER ID
-        # -------------------------------------------------
-
-        st.markdown(
-            f"**Leather ID**  \n"
-            f"{leather_id}"
-        )
-
-        st.divider()
-
-
-        # -------------------------------------------------
-        # ARTICLE
-        # -------------------------------------------------
-
-        st.markdown(
-            f"**Article Name**  \n"
-            f"{product.get('article_name') or '-'}"
-        )
-
-        st.divider()
-
-
-        # -------------------------------------------------
-        # COLOUR
-        # -------------------------------------------------
-
-        st.markdown(
-            f"**Colour**  \n"
-            f"{product.get('color') or '-'}"
-        )
-
-        st.divider()
-
-
-        # -------------------------------------------------
-        # THICKNESS
-        # -------------------------------------------------
-
-        st.markdown(
-            f"**Thickness**  \n"
-            f"{product.get('thickness') or '-'}"
-        )
-
-        st.divider()
-
-
-        # -------------------------------------------------
-        # ANIMAL
-        # -------------------------------------------------
-
-        st.markdown(
-            f"**Animal**  \n"
-            f"{product.get('animal') or '-'}"
-        )
-
-        st.divider()
-
-
-        # -------------------------------------------------
-        # TANNAGE
-        # -------------------------------------------------
-
-        st.markdown(
-            f"**Tannage**  \n"
-            f"{product.get('tannage') or '-'}"
-        )
-
-        st.divider()
-
-
-        # -------------------------------------------------
-        # ORIGIN
-        # -------------------------------------------------
-
-        st.markdown(
-            f"**Origin**  \n"
-            f"{product.get('origin') or '-'}"
-        )
-
-        st.divider()
-
-
-        # -------------------------------------------------
-        # PHOTO STATUS
-        # -------------------------------------------------
-
-        if main_image is not None:
-
-            st.success(
-                "Main photo available"
-            )
-
-        else:
-
-            st.warning(
-                "Main photo unavailable"
-            )
-
-
-        if closeup_image is not None:
-
-            st.success(
-                "Close-up photo available"
-            )
-
-        else:
-
-            st.warning(
-                "Close-up photo unavailable"
-            )
 
 
 # =========================================================
 # HEADER
 # =========================================================
 
-st.title("Leather Catalogue")
+st.title(
+    "Leather Catalogue"
+)
 
 st.caption(
-    "Explore our leather collection by article, colour, animal, "
-    "tannage and origin."
+    "Explore our leather collection by article, "
+    "colour, animal, tannage and origin."
 )
 
 
@@ -1536,8 +2181,8 @@ with search_col:
     search_text = st.text_input(
         "Search",
         placeholder=(
-            "Search leather ID, article, colour, animal, "
-            "tannage or origin..."
+            "Search leather ID, article, colour, "
+            "animal, tannage or origin..."
         ),
         label_visibility="collapsed",
     )
@@ -1565,8 +2210,12 @@ st.divider()
 
 animals = sorted(
     {
-        str(p["animal"]).strip()
+        str(
+            p["animal"]
+        ).strip()
+
         for p in products
+
         if p.get("animal")
     }
 )
@@ -1574,8 +2223,12 @@ animals = sorted(
 
 tannages = sorted(
     {
-        str(p["tannage"]).strip()
+        str(
+            p["tannage"]
+        ).strip()
+
         for p in products
+
         if p.get("tannage")
     }
 )
@@ -1583,8 +2236,12 @@ tannages = sorted(
 
 colors = sorted(
     {
-        str(p["color"]).strip()
+        str(
+            p["color"]
+        ).strip()
+
         for p in products
+
         if p.get("color")
     }
 )
@@ -1592,8 +2249,12 @@ colors = sorted(
 
 origins = sorted(
     {
-        str(p["origin"]).strip()
+        str(
+            p["origin"]
+        ).strip()
+
         for p in products
+
         if p.get("origin")
     }
 )
@@ -1603,9 +2264,11 @@ origins = sorted(
 # MAIN LAYOUT
 # =========================================================
 
-filter_col, catalogue_col = st.columns(
-    [1.2, 5],
-    gap="large",
+filter_col, catalogue_col = (
+    st.columns(
+        [1.2, 5],
+        gap="large",
+    )
 )
 
 
@@ -1615,40 +2278,52 @@ filter_col, catalogue_col = st.columns(
 
 with filter_col:
 
-    with st.container(border=True):
+    with st.container(
+        border=True
+    ):
 
-        st.subheader("Filter")
+        st.subheader(
+            "Filter"
+        )
 
         st.caption(
             "Narrow down the leather collection."
         )
 
 
-        selected_animals = st.multiselect(
-            "Animal",
-            options=animals,
-            placeholder="All animals",
+        selected_animals = (
+            st.multiselect(
+                "Animal",
+                options=animals,
+                placeholder="All animals",
+            )
         )
 
 
-        selected_tannages = st.multiselect(
-            "Tannage",
-            options=tannages,
-            placeholder="All tannages",
+        selected_tannages = (
+            st.multiselect(
+                "Tannage",
+                options=tannages,
+                placeholder="All tannages",
+            )
         )
 
 
-        selected_colors = st.multiselect(
-            "Colour",
-            options=colors,
-            placeholder="All colours",
+        selected_colors = (
+            st.multiselect(
+                "Colour",
+                options=colors,
+                placeholder="All colours",
+            )
         )
 
 
-        selected_origins = st.multiselect(
-            "Origin",
-            options=origins,
-            placeholder="All origins",
+        selected_origins = (
+            st.multiselect(
+                "Origin",
+                options=origins,
+                placeholder="All origins",
+            )
         )
 
 
@@ -1656,7 +2331,8 @@ with filter_col:
 
 
         st.caption(
-            f"{len(products)} total leather articles"
+            f"{len(products)} "
+            f"total leather articles"
         )
 
 
@@ -1665,6 +2341,7 @@ with filter_col:
 # =========================================================
 
 filtered_products = []
+
 
 search_lower = (
     search_text
@@ -1789,9 +2466,11 @@ for product in products:
 
 with catalogue_col:
 
-    result_col, sort_col = st.columns(
-        [4, 1],
-        vertical_alignment="center",
+    result_col, sort_col = (
+        st.columns(
+            [4, 1],
+            vertical_alignment="center",
+        )
     )
 
 
@@ -1832,7 +2511,9 @@ if sort_option == "Leather ID":
 
     filtered_products.sort(
         key=lambda x: str(
-            x.get("leather_id")
+            x.get(
+                "leather_id"
+            )
             or ""
         )
     )
@@ -1842,7 +2523,9 @@ elif sort_option == "Article":
 
     filtered_products.sort(
         key=lambda x: str(
-            x.get("article_name")
+            x.get(
+                "article_name"
+            )
             or ""
         ).lower()
     )
@@ -1852,7 +2535,9 @@ elif sort_option == "Animal":
 
     filtered_products.sort(
         key=lambda x: str(
-            x.get("animal")
+            x.get(
+                "animal"
+            )
             or ""
         ).lower()
     )
@@ -1862,7 +2547,9 @@ elif sort_option == "Colour":
 
     filtered_products.sort(
         key=lambda x: str(
-            x.get("color")
+            x.get(
+                "color"
+            )
             or ""
         ).lower()
     )
@@ -1930,39 +2617,51 @@ with catalogue_col:
                 ):
 
                     # =====================================
-                    # PRODUCT IMAGE
+                    # IMAGE URLs
                     # =====================================
 
-                    main_url = get_image_url(
-                        product.get(
-                            "main_photo"
+                    main_url = (
+                        get_image_url(
+                            product.get(
+                                "main_photo"
+                            )
                         )
                     )
 
 
-                    main_original = (
-                        load_image(
-                            main_url
+                    closeup_url = (
+                        get_image_url(
+                            product.get(
+                                "closeup_photo"
+                            )
                         )
-                        if main_url
-                        else None
                     )
 
 
-                    card_image = (
-                        make_card_image(
-                            main_original
-                        )
-                        if main_original
-                        else None
-                    )
+                    # =====================================
+                    # AUTO-SLIDING IMAGE
+                    #
+                    # MAIN
+                    #   ↓ 5 sec
+                    # CLOSE-UP
+                    #   ↓ 5 sec
+                    # MAIN
+                    # =====================================
 
+                    if (
+                        main_url
+                        or closeup_url
+                    ):
 
-                    if card_image is not None:
-
-                        st.image(
-                            card_image,
-                            width="stretch",
+                        auto_slide_image(
+                            main_url,
+                            closeup_url,
+                            height=220,
+                            key=str(
+                                product.get(
+                                    "leather_id"
+                                )
+                            ),
                         )
 
                     else:
@@ -1986,19 +2685,19 @@ with catalogue_col:
                     # =====================================
 
                     st.caption(
-                        f"Leather ID: "
+                        "Leather ID: "
                         f"{product.get('leather_id', '-')}"
                     )
 
 
                     # =====================================
-                    # VIEW DETAILS
+                    # DETAILS BUTTON
                     # =====================================
 
                     if st.button(
                         "View details",
                         key=(
-                            f"details_"
+                            "details_"
                             f"{product.get('leather_id')}"
                         ),
                         width="stretch",
