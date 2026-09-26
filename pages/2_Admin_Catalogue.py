@@ -1553,64 +1553,134 @@ with tab_manage:
 
                     st.exception(e)
 
-
+            
             # =============================================
             # DELETE
             # =============================================
-
+            
             if delete_clicked:
-
+            
+                st.session_state["delete_confirm_id"] = leather_id
+            
+            
+            # Show confirmation if this product is waiting
+            # for deletion confirmation.
+            
+            if (
+                st.session_state.get("delete_confirm_id")
+                == leather_id
+            ):
+            
                 st.warning(
-                    f"Delete {leather_id} permanently?"
+                    f"Are you sure you want to permanently delete "
+                    f"**{leather_id} | {article_name}**?"
                 )
-
-                confirm_col1, confirm_col2 = (
-                    st.columns(
-                        2
-                    )
+            
+                confirm_col1, confirm_col2 = st.columns(
+                    2,
+                    gap="medium",
                 )
-
+            
                 with confirm_col1:
-
+            
                     confirm_delete = st.button(
-                        "Yes, permanently delete",
-                        key=(
-                            f"confirm_delete_"
-                            f"{leather_id}"
-                        ),
+                        "🗑️ Yes, permanently delete",
+                        key=f"confirm_delete_{leather_id}",
                         type="primary",
                         width="stretch",
                     )
-
+            
                 with confirm_col2:
-
+            
                     cancel_delete = st.button(
                         "Cancel",
-                        key=(
-                            f"cancel_delete_"
-                            f"{leather_id}"
-                        ),
+                        key=f"cancel_delete_{leather_id}",
                         width="stretch",
                     )
-
+            
+                if cancel_delete:
+            
+                    st.session_state.pop(
+                        "delete_confirm_id",
+                        None,
+                    )
+            
+                    st.rerun()
+            
                 if confirm_delete:
-
+            
                     with st.spinner(
-                        "Deleting article..."
+                        f"Deleting {leather_id}..."
                     ):
-
-                        if delete_product(
-                            product
-                        ):
-
-                            st.cache_data.clear()
-
-                            st.success(
-                                f"{leather_id} "
-                                "was permanently deleted."
+            
+                        try:
+            
+                            # -----------------------------------------
+                            # DELETE DATABASE RECORD FIRST
+                            # -----------------------------------------
+            
+                            delete_response = (
+                                supabase
+                                .table(TABLE_NAME)
+                                .delete()
+                                .eq(
+                                    "leather_id",
+                                    leather_id,
+                                )
+                                .execute()
                             )
-
+            
+                            # -----------------------------------------
+                            # DELETE MAIN PHOTO
+                            # -----------------------------------------
+            
+                            if main_photo:
+            
+                                delete_storage_file(
+                                    main_photo
+                                )
+            
+                            # -----------------------------------------
+                            # DELETE CLOSE-UP PHOTO
+                            # -----------------------------------------
+            
+                            if (
+                                closeup_photo
+                                and closeup_photo != main_photo
+                            ):
+            
+                                delete_storage_file(
+                                    closeup_photo
+                                )
+            
+                            # -----------------------------------------
+                            # CLEAR DELETE STATE
+                            # -----------------------------------------
+            
+                            st.session_state.pop(
+                                "delete_confirm_id",
+                                None,
+                            )
+            
+                            # -----------------------------------------
+                            # CLEAR CACHE
+                            # -----------------------------------------
+            
+                            st.cache_data.clear()
+            
+                            st.success(
+                                f"{leather_id} was permanently deleted."
+                            )
+            
                             st.rerun()
+            
+                        except Exception as e:
+            
+                            st.error(
+                                f"Unable to delete {leather_id}."
+                            )
+            
+                            st.exception(e)
 
 
 # =========================================================
