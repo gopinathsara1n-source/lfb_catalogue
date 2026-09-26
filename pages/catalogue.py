@@ -21,6 +21,126 @@ st.set_page_config(
 
 
 # =========================================================
+# CATALOGUE PASSWORD PROTECTION
+# =========================================================
+
+def catalogue_password_gate():
+
+    # Already authenticated in this browser session
+    if st.session_state.get(
+        "catalogue_authenticated",
+        False,
+    ):
+        return True
+
+    st.markdown(
+        """
+        <style>
+
+        .password-wrapper {
+            max-width: 480px;
+            margin: 110px auto 0 auto;
+            padding: 35px;
+            text-align: center;
+        }
+
+        .password-icon {
+            font-size: 52px;
+            margin-bottom: 10px;
+        }
+
+        .password-title {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .password-subtitle {
+            color: #666;
+            font-size: 15px;
+            margin-bottom: 25px;
+        }
+
+        </style>
+
+        <div class="password-wrapper">
+
+            <div class="password-icon">
+                🔐
+            </div>
+
+            <div class="password-title">
+                Leather Catalogue
+            </div>
+
+            <div class="password-subtitle">
+                Enter the catalogue password to continue.
+            </div>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Password form
+    with st.form(
+        "catalogue_password_form"
+    ):
+
+        password = st.text_input(
+            "Catalogue Password",
+            type="password",
+            placeholder="Enter password",
+        )
+
+        submitted = st.form_submit_button(
+            "Open Catalogue",
+            type="primary",
+            width="stretch",
+        )
+
+    if submitted:
+
+        correct_password = st.secrets.get(
+            "CATALOGUE_PASSWORD",
+            "",
+        )
+
+        if not correct_password:
+
+            st.error(
+                "Catalogue password is not configured."
+            )
+
+            return False
+
+        if password == correct_password:
+
+            st.session_state[
+                "catalogue_authenticated"
+            ] = True
+
+            st.rerun()
+
+        else:
+
+            st.error(
+                "Incorrect password."
+            )
+
+    return False
+
+
+# =========================================================
+# PASSWORD GATE
+# =========================================================
+
+if not catalogue_password_gate():
+
+    st.stop()
+
+
+# =========================================================
 # SUPABASE CONNECTION
 # =========================================================
 
@@ -120,13 +240,11 @@ except Exception as e:
 # IMAGE SETTINGS
 # =========================================================
 
-# Catalogue cards
 CARD_SIZE = (
     1200,
     675,
 )
 
-# Detail viewer
 DETAIL_VIEWER_HEIGHT = 500
 
 
@@ -226,18 +344,6 @@ def make_card_image(image):
 
 # =========================================================
 # AUTO SLIDING CATALOGUE PHOTO
-#
-# Main photo
-#     ↓
-# 5 seconds
-#     ↓
-# Close-up
-#     ↓
-# 5 seconds
-#     ↓
-# Main photo
-#
-# No Streamlit rerun is required.
 # =========================================================
 
 def auto_slide_image(
@@ -279,26 +385,35 @@ def auto_slide_image(
         body {{
             margin: 0;
             padding: 0;
+
             width: 100%;
             height: 100%;
+
             overflow: hidden;
+
             background: white;
         }}
 
         .photo {{
             width: 100%;
             height: 100%;
+
             display: flex;
+
             align-items: center;
             justify-content: center;
+
             overflow: hidden;
+
             background: white;
         }}
 
         img {{
             width: 100%;
             height: 100%;
+
             object-fit: contain;
+
             display: block;
         }}
 
@@ -334,12 +449,12 @@ def auto_slide_image(
     # -----------------------------------------------------
 
     safe_main_url = html.escape(
-        main_url,
+        main_url or "",
         quote=True,
     )
 
     safe_closeup_url = html.escape(
-        closeup_url,
+        closeup_url or "",
         quote=True,
     )
 
@@ -355,7 +470,7 @@ def auto_slide_image(
     <meta
         name="viewport"
         content="width=device-width,
-        initial-scale=1.0"
+                 initial-scale=1.0"
     >
 
     <style>
@@ -366,65 +481,99 @@ def auto_slide_image(
 
     html,
     body {{
+
         margin: 0;
         padding: 0;
+
         width: 100%;
         height: 100%;
+
         overflow: hidden;
+
         background: white;
     }}
 
     .slider {{
+
         position: relative;
+
         width: 100%;
         height: 100%;
+
         overflow: hidden;
+
         background: white;
     }}
 
     .slide {{
+
         position: absolute;
+
         inset: 0;
+
         width: 100%;
         height: 100%;
+
         display: flex;
+
         align-items: center;
         justify-content: center;
+
         opacity: 0;
-        transition: opacity 0.8s ease-in-out;
+
+        transition:
+            opacity 0.8s ease-in-out;
     }}
 
     .slide.active {{
+
         opacity: 1;
     }}
 
     .slide img {{
+
         width: 100%;
         height: 100%;
+
         object-fit: contain;
+
         display: block;
     }}
 
     .photo-label {{
+
         position: absolute;
+
         right: 10px;
         bottom: 10px;
-        padding: 4px 8px;
+
+        padding:
+            4px 8px;
+
         border-radius: 5px;
-        background: rgba(
-            0,
-            0,
-            0,
-            0.60
-        );
+
+        background:
+            rgba(
+                0,
+                0,
+                0,
+                0.60
+            );
+
         color: white;
+
         font-size: 10px;
+
         z-index: 5;
+
         opacity: 0;
-        transition: opacity 0.4s ease;
+
+        transition:
+            opacity 0.4s ease;
     }}
 
     .slider:hover .photo-label {{
+
         opacity: 1;
     }}
 
@@ -493,7 +642,8 @@ def auto_slide_image(
 
     function switchPhoto() {{
 
-        showingMain = !showingMain;
+        showingMain =
+            !showingMain;
 
         if (showingMain) {{
 
@@ -523,10 +673,6 @@ def auto_slide_image(
         }}
     }}
 
-    // ---------------------------------------------------
-    // CHANGE EVERY 5 SECONDS
-    // ---------------------------------------------------
-
     setInterval(
         switchPhoto,
         5000
@@ -547,24 +693,6 @@ def auto_slide_image(
 
 # =========================================================
 # PROFESSIONAL INTERACTIVE DETAIL VIEWER
-#
-# Initial state:
-# Complete photo fitted
-#
-# Mouse wheel:
-# Zoom in / out
-#
-# Mouse drag:
-# Move in every direction
-#
-# Double click:
-# Reset
-#
-# + / -:
-# Zoom
-#
-# Reset:
-# Fit photo back to screen
 # =========================================================
 
 def interactive_detail_viewer(
@@ -604,7 +732,7 @@ def interactive_detail_viewer(
     <meta
         name="viewport"
         content="width=device-width,
-        initial-scale=1.0"
+                 initial-scale=1.0"
     >
 
     <style>
@@ -615,24 +743,23 @@ def interactive_detail_viewer(
 
     html,
     body {{
+
         margin: 0;
         padding: 0;
+
         width: 100%;
         height: 100%;
+
         overflow: hidden;
+
         background: #111;
     }}
-
-    /* ===================================================
-       VIEWER
-       =================================================== */
 
     #viewer {{
 
         position: relative;
 
         width: 100%;
-
         height: {height}px;
 
         overflow: hidden;
@@ -641,7 +768,8 @@ def interactive_detail_viewer(
 
         border-radius: 10px;
 
-        border: 1px solid
+        border:
+            1px solid
             rgba(
                 255,
                 255,
@@ -657,28 +785,24 @@ def interactive_detail_viewer(
     }}
 
     #viewer.dragging {{
+
         cursor: grabbing;
     }}
-
-    /* ===================================================
-       IMAGE
-       =================================================== */
 
     #photo {{
 
         position: absolute;
 
         left: 50%;
-
         top: 50%;
 
         display: block;
 
         max-width: none;
-
         max-height: none;
 
-        transform-origin: center center;
+        transform-origin:
+            center center;
 
         pointer-events: none;
 
@@ -686,19 +810,15 @@ def interactive_detail_viewer(
 
         -webkit-user-drag: none;
 
-        will-change: transform;
+        will-change:
+            transform;
     }}
-
-    /* ===================================================
-       CONTROLS
-       =================================================== */
 
     .controls {{
 
         position: absolute;
 
         top: 12px;
-
         right: 12px;
 
         z-index: 10;
@@ -711,10 +831,10 @@ def interactive_detail_viewer(
     .control {{
 
         min-width: 38px;
-
         height: 38px;
 
-        padding: 0 10px;
+        padding:
+            0 10px;
 
         border: none;
 
@@ -736,7 +856,8 @@ def interactive_detail_viewer(
 
         cursor: pointer;
 
-        backdrop-filter: blur(8px);
+        backdrop-filter:
+            blur(8px);
     }}
 
     .control:hover {{
@@ -751,24 +872,21 @@ def interactive_detail_viewer(
     }}
 
     .reset {{
+
         font-size: 12px;
     }}
-
-    /* ===================================================
-       ZOOM LABEL
-       =================================================== */
 
     #zoomLabel {{
 
         position: absolute;
 
         left: 12px;
-
         bottom: 12px;
 
         z-index: 10;
 
-        padding: 5px 9px;
+        padding:
+            5px 9px;
 
         border-radius: 6px;
 
@@ -791,23 +909,20 @@ def interactive_detail_viewer(
         font-size: 11px;
     }}
 
-    /* ===================================================
-       HELP
-       =================================================== */
-
     #help {{
 
         position: absolute;
 
         left: 50%;
-
         bottom: 12px;
 
-        transform: translateX(-50%);
+        transform:
+            translateX(-50%);
 
         z-index: 10;
 
-        padding: 5px 10px;
+        padding:
+            5px 10px;
 
         border-radius: 6px;
 
@@ -840,10 +955,6 @@ def interactive_detail_viewer(
 
     <div id="viewer">
 
-        <!-- =========================================
-             CONTROLS
-             ========================================= -->
-
         <div class="controls">
 
             <button
@@ -872,11 +983,6 @@ def interactive_detail_viewer(
 
         </div>
 
-
-        <!-- =========================================
-             PHOTO
-             ========================================= -->
-
         <img
             id="photo"
             src="data:image/jpeg;base64,{image_base64}"
@@ -884,33 +990,23 @@ def interactive_detail_viewer(
             alt="Leather photo"
         >
 
-
-        <!-- =========================================
-             ZOOM LABEL
-             ========================================= -->
-
         <div id="zoomLabel">
             100%
         </div>
 
-
-        <!-- =========================================
-             HELP
-             ========================================= -->
-
         <div id="help">
-            Scroll to zoom • Drag to move •
+
+            Scroll to zoom
+            •
+            Drag to move
+            •
             Double-click to fit
+
         </div>
 
     </div>
 
-
     <script>
-
-    // =================================================
-    // ELEMENTS
-    // =================================================
 
     const viewer =
         document.getElementById(
@@ -942,11 +1038,6 @@ def interactive_detail_viewer(
             "reset"
         );
 
-
-    // =================================================
-    // STATE
-    // =================================================
-
     let baseScale = 1;
 
     let scale = 1;
@@ -974,10 +1065,6 @@ def interactive_detail_viewer(
     const MAX_ZOOM = 8;
 
 
-    // =================================================
-    // GET VIEWER SIZE
-    // =================================================
-
     function viewerSize() {{
 
         return {{
@@ -991,10 +1078,6 @@ def interactive_detail_viewer(
         }};
     }}
 
-
-    // =================================================
-    // CLAMP PAN
-    // =================================================
 
     function clampPan() {{
 
@@ -1011,8 +1094,8 @@ def interactive_detail_viewer(
             Math.max(
                 0,
                 (
-                    renderedWidth
-                    - size.width
+                    renderedWidth -
+                    size.width
                 ) / 2
             );
 
@@ -1020,8 +1103,8 @@ def interactive_detail_viewer(
             Math.max(
                 0,
                 (
-                    renderedHeight
-                    - size.height
+                    renderedHeight -
+                    size.height
                 ) / 2
             );
 
@@ -1045,10 +1128,6 @@ def interactive_detail_viewer(
     }}
 
 
-    // =================================================
-    // UPDATE LABEL
-    // =================================================
-
     function updateLabel() {{
 
         const relativeZoom =
@@ -1061,34 +1140,24 @@ def interactive_detail_viewer(
     }}
 
 
-    // =================================================
-    // APPLY TRANSFORM
-    // =================================================
-
     function applyTransform() {{
 
         clampPan();
 
         photo.style.transform =
-            "translate(-50%, -50%) "
-            +
-            "translate("
-            + translateX
-            + "px, "
-            + translateY
-            + "px) "
-            +
-            "scale("
-            + scale
-            + ")";
+            "translate(-50%, -50%) " +
+            "translate(" +
+            translateX +
+            "px, " +
+            translateY +
+            "px) " +
+            "scale(" +
+            scale +
+            ")";
 
         updateLabel();
     }}
 
-
-    // =================================================
-    // FIT PHOTO
-    // =================================================
 
     function fitPhoto() {{
 
@@ -1096,8 +1165,7 @@ def interactive_detail_viewer(
             viewerSize();
 
         if (
-            imageWidth <= 0
-            ||
+            imageWidth <= 0 ||
             imageHeight <= 0
         ) {{
 
@@ -1107,16 +1175,12 @@ def interactive_detail_viewer(
         const widthScale =
             (
                 size.width - 20
-            )
-            /
-            imageWidth;
+            ) / imageWidth;
 
         const heightScale =
             (
                 size.height - 20
-            )
-            /
-            imageHeight;
+            ) / imageHeight;
 
         baseScale =
             Math.min(
@@ -1130,7 +1194,8 @@ def interactive_detail_viewer(
                 baseScale
             );
 
-        scale = baseScale;
+        scale =
+            baseScale;
 
         translateX = 0;
 
@@ -1139,10 +1204,6 @@ def interactive_detail_viewer(
         applyTransform();
     }}
 
-
-    // =================================================
-    // ZOOM AROUND CURSOR
-    // =================================================
 
     function zoomAt(
         requestedScale,
@@ -1164,7 +1225,8 @@ def interactive_detail_viewer(
 
         if (
             Math.abs(
-                newScale - oldScale
+                newScale -
+                oldScale
             ) < 0.0001
         ) {{
 
@@ -1181,34 +1243,31 @@ def interactive_detail_viewer(
             size.height / 2;
 
         const pointX =
-            mouseX - centerX;
+            mouseX -
+            centerX;
 
         const pointY =
-            mouseY - centerY;
+            mouseY -
+            centerY;
 
         const ratio =
-            newScale / oldScale;
+            newScale /
+            oldScale;
 
         translateX =
-            pointX
-            -
+            pointX -
             (
-                pointX
-                -
+                pointX -
                 translateX
-            )
-            *
+            ) *
             ratio;
 
         translateY =
-            pointY
-            -
+            pointY -
             (
-                pointY
-                -
+                pointY -
                 translateY
-            )
-            *
+            ) *
             ratio;
 
         scale =
@@ -1217,10 +1276,6 @@ def interactive_detail_viewer(
         applyTransform();
     }}
 
-
-    // =================================================
-    // MOUSE WHEEL
-    // =================================================
 
     viewer.addEventListener(
         "wheel",
@@ -1234,13 +1289,11 @@ def interactive_detail_viewer(
                 viewer.getBoundingClientRect();
 
             const mouseX =
-                event.clientX
-                -
+                event.clientX -
                 rect.left;
 
             const mouseY =
-                event.clientY
-                -
+                event.clientY -
                 rect.top;
 
             if (
@@ -1260,18 +1313,14 @@ def interactive_detail_viewer(
                     mouseX,
                     mouseY
                 );
-            }
+            }}
 
-        },
-        {
+        }},
+        {{
             passive: false
-        }
+        }}
     );
 
-
-    // =================================================
-    // MOUSE DOWN
-    // =================================================
 
     viewer.addEventListener(
         "mousedown",
@@ -1285,8 +1334,7 @@ def interactive_detail_viewer(
             }}
 
             if (
-                event.target.tagName
-                ===
+                event.target.tagName ===
                 "BUTTON"
             ) {{
 
@@ -1313,49 +1361,38 @@ def interactive_detail_viewer(
 
             event.preventDefault();
 
-        }
+        }}
     );
 
-
-    // =================================================
-    // MOUSE MOVE
-    // =================================================
 
     window.addEventListener(
         "mousemove",
         function(event) {{
 
             if (!dragging) {{
+
                 return;
             }}
 
             translateX =
-                startTranslateX
-                +
+                startTranslateX +
                 (
-                    event.clientX
-                    -
+                    event.clientX -
                     startX
                 );
 
             translateY =
-                startTranslateY
-                +
+                startTranslateY +
                 (
-                    event.clientY
-                    -
+                    event.clientY -
                     startY
                 );
 
             applyTransform();
 
-        }
+        }}
     );
 
-
-    // =================================================
-    // MOUSE UP
-    // =================================================
 
     window.addEventListener(
         "mouseup",
@@ -1367,21 +1404,16 @@ def interactive_detail_viewer(
                 "dragging"
             );
 
-        }
+        }}
     );
 
-
-    // =================================================
-    // DOUBLE CLICK
-    // =================================================
 
     viewer.addEventListener(
         "dblclick",
         function(event) {{
 
             if (
-                event.target.tagName
-                ===
+                event.target.tagName ===
                 "BUTTON"
             ) {{
 
@@ -1390,13 +1422,9 @@ def interactive_detail_viewer(
 
             fitPhoto();
 
-        }
+        }}
     );
 
-
-    // =================================================
-    // ZOOM IN
-    // =================================================
 
     zoomIn.addEventListener(
         "click",
@@ -1413,13 +1441,9 @@ def interactive_detail_viewer(
                 size.height / 2
             );
 
-        }
+        }}
     );
 
-
-    // =================================================
-    // ZOOM OUT
-    // =================================================
 
     zoomOut.addEventListener(
         "click",
@@ -1436,13 +1460,9 @@ def interactive_detail_viewer(
                 size.height / 2
             );
 
-        }
+        }}
     );
 
-
-    // =================================================
-    // FIT BUTTON
-    // =================================================
 
     resetButton.addEventListener(
         "click",
@@ -1452,13 +1472,9 @@ def interactive_detail_viewer(
 
             fitPhoto();
 
-        }
+        }}
     );
 
-
-    // =================================================
-    // TOUCH DRAG
-    // =================================================
 
     let touchStartX = 0;
 
@@ -1495,10 +1511,10 @@ def interactive_detail_viewer(
             touchStartTranslateY =
                 translateY;
 
-        },
-        {
+        }},
+        {{
             passive: true
-        }
+        }}
     );
 
 
@@ -1517,33 +1533,25 @@ def interactive_detail_viewer(
                 event.touches[0];
 
             translateX =
-                touch.clientX
-                -
-                touchStartX
-                +
+                touch.clientX -
+                touchStartX +
                 touchStartTranslateX;
 
             translateY =
-                touch.clientY
-                -
-                touchStartY
-                +
+                touch.clientY -
+                touchStartY +
                 touchStartTranslateY;
 
             applyTransform();
 
             event.preventDefault();
 
-        },
-        {
+        }},
+        {{
             passive: false
-        }
+        }}
     );
 
-
-    // =================================================
-    // IMAGE LOADED
-    // =================================================
 
     photo.addEventListener(
         "load",
@@ -1563,13 +1571,9 @@ def interactive_detail_viewer(
 
             fitPhoto();
 
-        }
+        }}
     );
 
-
-    // =================================================
-    // WINDOW RESIZE
-    // =================================================
 
     window.addEventListener(
         "resize",
@@ -1577,7 +1581,7 @@ def interactive_detail_viewer(
 
             fitPhoto();
 
-        }
+        }}
     );
 
     </script>
@@ -1604,61 +1608,47 @@ def show_detail_information(
 ):
 
     leather_id = str(
-        product.get(
-            "leather_id"
-        )
+        product.get("leather_id")
         or "-"
     )
 
     article_name = str(
-        product.get(
-            "article_name"
-        )
+        product.get("article_name")
         or "-"
     )
 
     color = str(
-        product.get(
-            "color"
-        )
+        product.get("color")
         or "-"
     )
 
     thickness = str(
-        product.get(
-            "thickness"
-        )
+        product.get("thickness")
         or "-"
     )
 
     animal = str(
-        product.get(
-            "animal"
-        )
+        product.get("animal")
         or "-"
     )
 
     tannage = str(
-        product.get(
-            "tannage"
-        )
+        product.get("tannage")
         or "-"
     )
 
     origin = str(
-        product.get(
-            "origin"
-        )
+        product.get("origin")
         or "-"
     )
+
 
     st.markdown(
         "### Product Information"
     )
 
-    # =====================================================
+
     # ROW 1
-    # =====================================================
 
     col1, col2 = st.columns(
         2,
@@ -1685,9 +1675,8 @@ def show_detail_information(
             article_name
         )
 
-    # =====================================================
+
     # ROW 2
-    # =====================================================
 
     col1, col2 = st.columns(
         2,
@@ -1714,9 +1703,8 @@ def show_detail_information(
             thickness
         )
 
-    # =====================================================
+
     # ROW 3
-    # =====================================================
 
     col1, col2 = st.columns(
         2,
@@ -1743,9 +1731,8 @@ def show_detail_information(
             tannage
         )
 
-    # =====================================================
+
     # ROW 4
-    # =====================================================
 
     col1, col2 = st.columns(
         2,
@@ -1770,8 +1757,7 @@ def show_detail_information(
 
         if (
             main_image is not None
-            and
-            closeup_image is not None
+            and closeup_image is not None
         ):
 
             st.write(
@@ -1809,34 +1795,26 @@ def show_detail_information(
 def show_product_details(product):
 
     leather_id = str(
-        product.get(
-            "leather_id"
-        )
+        product.get("leather_id")
         or "-"
     )
 
     article_name = str(
-        product.get(
-            "article_name"
-        )
+        product.get("article_name")
         or "-"
     )
 
+
     main_url = get_image_url(
-        product.get(
-            "main_photo"
-        )
+        product.get("main_photo")
     )
 
     closeup_url = get_image_url(
-        product.get(
-            "closeup_photo"
-        )
+        product.get("closeup_photo")
     )
 
-    # =====================================================
+
     # LOAD ORIGINAL IMAGES
-    # =====================================================
 
     main_image = (
         load_image(main_url)
@@ -1850,9 +1828,8 @@ def show_product_details(product):
         else None
     )
 
-    # =====================================================
+
     # PHOTO OPTIONS
-    # =====================================================
 
     photo_options = []
 
@@ -1868,58 +1845,61 @@ def show_product_details(product):
             "Close-up"
         )
 
-    # =====================================================
+
     # PHOTO SELECTOR
-    # =====================================================
 
     if len(photo_options) == 2:
 
-        selected_photo = st.segmented_control(
-            "Photo",
-            photo_options,
-            default="Main",
-            width="stretch",
-            key=(
-                f"detail_photo_"
-                f"{leather_id}"
-            ),
+        selected_photo = (
+            st.segmented_control(
+                "Photo",
+                photo_options,
+                default="Main",
+                width="stretch",
+                key=(
+                    f"detail_photo_"
+                    f"{leather_id}"
+                ),
+            )
         )
 
     elif len(photo_options) == 1:
 
-        selected_photo = photo_options[0]
+        selected_photo = (
+            photo_options[0]
+        )
 
     else:
 
         selected_photo = None
 
-    # =====================================================
+
     # SELECT CURRENT IMAGE
-    # =====================================================
 
     if selected_photo == "Close-up":
 
-        selected_image = closeup_image
+        selected_image = (
+            closeup_image
+        )
 
     else:
 
-        selected_image = main_image
+        selected_image = (
+            main_image
+        )
 
-    # =====================================================
+
     # MAIN DIALOG LAYOUT
-    #
-    # Photo = left
-    # Information = right
-    # =====================================================
 
-    photo_col, details_col = st.columns(
-        [1.65, 1],
-        gap="large",
+    photo_col, details_col = (
+        st.columns(
+            [1.65, 1],
+            gap="large",
+        )
     )
 
-    # =====================================================
+
     # PHOTO
-    # =====================================================
 
     with photo_col:
 
@@ -1940,15 +1920,14 @@ def show_product_details(product):
                 height=DETAIL_VIEWER_HEIGHT,
             )
 
-        st.caption(
-            "Scroll to zoom • "
-            "Drag to move • "
-            "Double-click or Fit to reset"
-        )
+            st.caption(
+                "Scroll to zoom • "
+                "Drag to move • "
+                "Double-click or Fit to reset"
+            )
 
-    # =====================================================
+
     # INFORMATION
-    # =====================================================
 
     with details_col:
 
@@ -1963,14 +1942,36 @@ def show_product_details(product):
 # HEADER
 # =========================================================
 
-st.title(
-    "Leather Catalogue"
+header_col, lock_col = st.columns(
+    [8, 1],
+    vertical_alignment="center",
 )
 
-st.caption(
-    "Explore our leather collection by article, "
-    "colour, animal, tannage and origin."
-)
+with header_col:
+
+    st.title(
+        "Leather Catalogue"
+    )
+
+    st.caption(
+        "Explore our leather collection by article, "
+        "colour, animal, tannage and origin."
+    )
+
+
+with lock_col:
+
+    if st.button(
+        "🔒 Lock",
+        width="stretch",
+        help="Lock the catalogue",
+    ):
+
+        st.session_state[
+            "catalogue_authenticated"
+        ] = False
+
+        st.rerun()
 
 
 # =========================================================
@@ -1982,6 +1983,7 @@ search_col, refresh_col = st.columns(
     vertical_alignment="center",
 )
 
+
 with search_col:
 
     search_text = st.text_input(
@@ -1992,6 +1994,7 @@ with search_col:
         ),
         label_visibility="collapsed",
     )
+
 
 with refresh_col:
 
@@ -2018,37 +2021,48 @@ animals = sorted(
         str(
             p["animal"]
         ).strip()
+
         for p in products
+
         if p.get("animal")
     }
 )
+
 
 tannages = sorted(
     {
         str(
             p["tannage"]
         ).strip()
+
         for p in products
+
         if p.get("tannage")
     }
 )
+
 
 colors = sorted(
     {
         str(
             p["color"]
         ).strip()
+
         for p in products
+
         if p.get("color")
     }
 )
+
 
 origins = sorted(
     {
         str(
             p["origin"]
         ).strip()
+
         for p in products
+
         if p.get("origin")
     }
 )
@@ -2058,9 +2072,11 @@ origins = sorted(
 # MAIN LAYOUT
 # =========================================================
 
-filter_col, catalogue_col = st.columns(
-    [1.2, 5],
-    gap="large",
+filter_col, catalogue_col = (
+    st.columns(
+        [1.2, 5],
+        gap="large",
+    )
 )
 
 
@@ -2082,31 +2098,45 @@ with filter_col:
             "Narrow down the leather collection."
         )
 
-        selected_animals = st.multiselect(
-            "Animal",
-            options=animals,
-            placeholder="All animals",
+
+        selected_animals = (
+            st.multiselect(
+                "Animal",
+                options=animals,
+                placeholder="All animals",
+            )
         )
 
-        selected_tannages = st.multiselect(
-            "Tannage",
-            options=tannages,
-            placeholder="All tannages",
+
+        selected_tannages = (
+            st.multiselect(
+                "Tannage",
+                options=tannages,
+                placeholder="All tannages",
+            )
         )
 
-        selected_colors = st.multiselect(
-            "Colour",
-            options=colors,
-            placeholder="All colours",
+
+        selected_colors = (
+            st.multiselect(
+                "Colour",
+                options=colors,
+                placeholder="All colours",
+            )
         )
 
-        selected_origins = st.multiselect(
-            "Origin",
-            options=origins,
-            placeholder="All origins",
+
+        selected_origins = (
+            st.multiselect(
+                "Origin",
+                options=origins,
+                placeholder="All origins",
+            )
         )
+
 
         st.divider()
+
 
         st.caption(
             f"{len(products)} "
@@ -2120,11 +2150,13 @@ with filter_col:
 
 filtered_products = []
 
+
 search_lower = (
     search_text
     .strip()
     .lower()
 )
+
 
 for product in products:
 
@@ -2181,77 +2213,55 @@ for product in products:
         ]
     ).lower()
 
-    # -----------------------------------------------------
-    # SEARCH
-    # -----------------------------------------------------
 
     if (
         search_lower
-        and
-        search_lower not in searchable_text
+        and search_lower
+        not in searchable_text
     ):
 
         continue
 
-    # -----------------------------------------------------
-    # ANIMAL
-    # -----------------------------------------------------
 
     if selected_animals:
 
         if (
-            product.get(
-                "animal"
-            )
+            product.get("animal")
             not in selected_animals
         ):
 
             continue
 
-    # -----------------------------------------------------
-    # TANNAGE
-    # -----------------------------------------------------
 
     if selected_tannages:
 
         if (
-            product.get(
-                "tannage"
-            )
+            product.get("tannage")
             not in selected_tannages
         ):
 
             continue
 
-    # -----------------------------------------------------
-    # COLOUR
-    # -----------------------------------------------------
 
     if selected_colors:
 
         if (
-            product.get(
-                "color"
-            )
+            product.get("color")
             not in selected_colors
         ):
 
             continue
 
-    # -----------------------------------------------------
-    # ORIGIN
-    # -----------------------------------------------------
 
     if selected_origins:
 
         if (
-            product.get(
-                "origin"
-            )
+            product.get("origin")
             not in selected_origins
         ):
 
             continue
+
 
     filtered_products.append(
         product
@@ -2264,10 +2274,13 @@ for product in products:
 
 with catalogue_col:
 
-    result_col, sort_col = st.columns(
-        [4, 1],
-        vertical_alignment="center",
+    result_col, sort_col = (
+        st.columns(
+            [4, 1],
+            vertical_alignment="center",
+        )
     )
+
 
     with result_col:
 
@@ -2282,6 +2295,7 @@ with catalogue_col:
             f"{len(products)} "
             f"leather articles"
         )
+
 
     with sort_col:
 
@@ -2312,6 +2326,7 @@ if sort_option == "Leather ID":
         )
     )
 
+
 elif sort_option == "Article":
 
     filtered_products.sort(
@@ -2323,6 +2338,7 @@ elif sort_option == "Article":
         ).lower()
     )
 
+
 elif sort_option == "Animal":
 
     filtered_products.sort(
@@ -2333,6 +2349,7 @@ elif sort_option == "Animal":
             or ""
         ).lower()
     )
+
 
 elif sort_option == "Colour":
 
@@ -2382,15 +2399,19 @@ with catalogue_col:
         4,
     ):
 
-        row_products = filtered_products[
-            row_start:
-            row_start + 4
-        ]
+        row_products = (
+            filtered_products[
+                row_start:
+                row_start + 4
+            ]
+        )
+
 
         columns = st.columns(
             4,
             gap="medium",
         )
+
 
         for column, product in zip(
             columns,
@@ -2403,36 +2424,31 @@ with catalogue_col:
                     border=True
                 ):
 
-                    # =====================================
                     # IMAGE URLs
-                    # =====================================
 
-                    main_url = get_image_url(
-                        product.get(
-                            "main_photo"
+                    main_url = (
+                        get_image_url(
+                            product.get(
+                                "main_photo"
+                            )
                         )
                     )
 
-                    closeup_url = get_image_url(
-                        product.get(
-                            "closeup_photo"
+
+                    closeup_url = (
+                        get_image_url(
+                            product.get(
+                                "closeup_photo"
+                            )
                         )
                     )
 
-                    # =====================================
+
                     # AUTO-SLIDING IMAGE
-                    #
-                    # MAIN
-                    # ↓ 5 sec
-                    # CLOSE-UP
-                    # ↓ 5 sec
-                    # MAIN
-                    # =====================================
 
                     if (
                         main_url
-                        or
-                        closeup_url
+                        or closeup_url
                     ):
 
                         auto_slide_image(
@@ -2452,26 +2468,23 @@ with catalogue_col:
                             "Image unavailable"
                         )
 
-                    # =====================================
+
                     # ARTICLE NAME
-                    # =====================================
 
                     st.markdown(
-                        f"**{product.get('article_name', '-') }**"
+                        f"**{product.get('article_name', '-')}**"
                     )
 
-                    # =====================================
+
                     # LEATHER ID
-                    # =====================================
 
                     st.caption(
                         "Leather ID: "
                         f"{product.get('leather_id', '-')}"
                     )
 
-                    # =====================================
+
                     # DETAILS BUTTON
-                    # =====================================
 
                     if st.button(
                         "View details",
