@@ -19,126 +19,101 @@ st.set_page_config(
     layout="wide",
 )
 
-
 # =========================================================
 # CATALOGUE PASSWORD PROTECTION
 # =========================================================
 
 def catalogue_password_gate():
 
-    # Already authenticated in this browser session
+    # Already authenticated
     if st.session_state.get(
         "catalogue_authenticated",
         False,
     ):
         return True
 
-    st.markdown(
-        """
-        <style>
-
-        .password-wrapper {
-            max-width: 480px;
-            margin: 110px auto 0 auto;
-            padding: 35px;
-            text-align: center;
-        }
-
-        .password-icon {
-            font-size: 52px;
-            margin-bottom: 10px;
-        }
-
-        .password-title {
-            font-size: 32px;
-            font-weight: 700;
-            margin-bottom: 8px;
-        }
-
-        .password-subtitle {
-            color: #666;
-            font-size: 15px;
-            margin-bottom: 25px;
-        }
-
-        </style>
-
-        <div class="password-wrapper">
-
-            <div class="password-icon">
-                🔐
-            </div>
-
-            <div class="password-title">
-                Leather Catalogue
-            </div>
-
-            <div class="password-subtitle">
-                Enter the catalogue password to continue.
-            </div>
-
-        </div>
-        """,
-        unsafe_allow_html=True,
+    # Centered password screen
+    left, center, right = st.columns(
+        [1, 2, 1]
     )
 
-    # Password form
-    with st.form(
-        "catalogue_password_form"
-    ):
+    with center:
 
-        password = st.text_input(
-            "Catalogue Password",
-            type="password",
-            placeholder="Enter password",
+        st.markdown(
+            "<div style='text-align:center; "
+            "font-size:50px;'>🔐</div>",
+            unsafe_allow_html=True,
         )
 
-        submitted = st.form_submit_button(
-            "Open Catalogue",
-            type="primary",
-            width="stretch",
+        st.markdown(
+            "<h2 style='text-align:center;'>"
+            "Leather Catalogue"
+            "</h2>",
+            unsafe_allow_html=True,
         )
 
-    if submitted:
-
-        correct_password = st.secrets.get(
-            "CATALOGUE_PASSWORD",
-            "",
+        st.markdown(
+            "<p style='text-align:center; "
+            "color:gray;'>"
+            "Enter the catalogue password to continue."
+            "</p>",
+            unsafe_allow_html=True,
         )
 
-        if not correct_password:
+        st.write("")
 
-            st.error(
-                "Catalogue password is not configured."
+        with st.form(
+            "catalogue_password_form"
+        ):
+
+            password = st.text_input(
+                "Catalogue Password",
+                type="password",
+                placeholder="Enter password",
             )
 
-            return False
-
-        if password == correct_password:
-
-            st.session_state[
-                "catalogue_authenticated"
-            ] = True
-
-            st.rerun()
-
-        else:
-
-            st.error(
-                "Incorrect password."
+            submitted = st.form_submit_button(
+                "Open Catalogue",
+                type="primary",
+                width="stretch",
             )
+
+        if submitted:
+
+            correct_password = st.secrets.get(
+                "CATALOGUE_PASSWORD",
+                "",
+            )
+
+            if not correct_password:
+
+                st.error(
+                    "Catalogue password is not configured."
+                )
+
+                return False
+
+            if password == correct_password:
+
+                st.session_state[
+                    "catalogue_authenticated"
+                ] = True
+
+                st.rerun()
+
+            else:
+
+                st.error(
+                    "Incorrect password."
+                )
 
     return False
-
-
 # =========================================================
 # PASSWORD GATE
 # =========================================================
 
 if not catalogue_password_gate():
-
     st.stop()
-
 
 # =========================================================
 # SUPABASE CONNECTION
