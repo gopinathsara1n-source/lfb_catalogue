@@ -1,5 +1,4 @@
-Pasted text(20260926-091028).txt
-Document
+
 import streamlit as st
 from supabase import create_client
 from urllib.parse import quote
