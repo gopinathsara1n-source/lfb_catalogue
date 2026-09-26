@@ -254,6 +254,26 @@ def load_all_products():
 
 
 # =========================================================
+# DUPLICATE VALIDATION
+# =========================================================
+
+def check_duplicate_product(leather_id, article_name, exclude_leather_id=None):
+    """Case-insensitive duplicate check for Leather ID and Article Name."""
+    lid = leather_id.strip().casefold()
+    name = article_name.strip().casefold()
+    for product in load_all_products():
+        existing_id = str(product.get("leather_id") or "").strip()
+        existing_name = str(product.get("article_name") or "").strip()
+        if exclude_leather_id and existing_id.casefold() == exclude_leather_id.strip().casefold():
+            continue
+        if existing_id.casefold() == lid:
+            return False, f"Leather ID '{leather_id}' already exists."
+        if existing_name.casefold() == name:
+            return False, f"Article Name '{article_name}' already exists."
+    return True, ""
+
+
+# =========================================================
 # STORAGE HELPERS
 # =========================================================
 
@@ -701,24 +721,13 @@ with tab_add:
 
         else:
 
-            existing = (
-                supabase
-                .table(TABLE_NAME)
-                .select("leather_id")
-                .eq(
-                    "leather_id",
-                    leather_id,
-                )
-                .execute()
+            is_valid, duplicate_message = check_duplicate_product(
+                leather_id=leather_id,
+                article_name=article_name,
             )
 
-            if existing.data:
-
-                st.error(
-                    f"Leather ID '{leather_id}' "
-                    "already exists."
-                )
-
+            if not is_valid:
+                st.error(duplicate_message)
             else:
 
                 with st.spinner(
@@ -1328,166 +1337,169 @@ with tab_manage:
             if save_clicked:
 
                 if not edit_article_name.strip():
-
-                    st.error(
-                        "Article Name cannot be empty."
-                    )
+                    st.error("Article Name cannot be empty.")
 
                 else:
-
-                    new_main_photo_name = (
-                        main_photo
+                    is_valid, duplicate_message = check_duplicate_product(
+                        leather_id=leather_id,
+                        article_name=edit_article_name,
+                        exclude_leather_id=leather_id,
                     )
 
-                    new_closeup_photo_name = (
-                        closeup_photo
-                    )
+                    if not is_valid:
+                        st.error(duplicate_message)
+                    else:
+                        new_main_photo_name = main_photo
 
-                    upload_success = True
-
-                    # -------------------------------------
-                    # NEW MAIN PHOTO
-                    # -------------------------------------
-
-                    if new_main_photo:
-
-                        uploaded_main_name = (
-                            upload_image(
-                                new_main_photo,
-                                leather_id,
-                                "main",
-                            )
+                        new_closeup_photo_name = (
+                            closeup_photo
                         )
 
-                        if uploaded_main_name:
+                        upload_success = True
 
-                            new_main_photo_name = (
-                                uploaded_main_name
+                        # -------------------------------------
+                        # NEW MAIN PHOTO
+                        # -------------------------------------
+
+                        if new_main_photo:
+
+                            uploaded_main_name = (
+                                upload_image(
+                                    new_main_photo,
+                                    leather_id,
+                                    "main",
+                                )
                             )
 
-                        else:
+                            if uploaded_main_name:
 
-                            upload_success = False
-
-
-                    # -------------------------------------
-                    # NEW CLOSE-UP PHOTO
-                    # -------------------------------------
-
-                    if (
-                        upload_success
-                        and new_closeup_photo
-                    ):
-
-                        uploaded_closeup_name = (
-                            upload_image(
-                                new_closeup_photo,
-                                leather_id,
-                                "closeup",
-                            )
-                        )
-
-                        if uploaded_closeup_name:
-
-                            new_closeup_photo_name = (
-                                uploaded_closeup_name
-                            )
-
-                        else:
-
-                            upload_success = False
-
-
-                    if upload_success:
-
-                        try:
-
-                            update_product(
-                                leather_id=leather_id,
-                                article_name=(
-                                    edit_article_name
-                                    .strip()
-                                ),
-                                color=(
-                                    edit_color
-                                    .strip()
-                                ),
-                                thickness=(
-                                    edit_thickness
-                                    .strip()
-                                ),
-                                tannage=(
-                                    edit_tannage
-                                    .strip()
-                                ),
-                                animal=(
-                                    edit_animal
-                                    .strip()
-                                ),
-                                origin=(
-                                    edit_origin
-                                    .strip()
-                                ),
-                                main_photo=(
-                                    new_main_photo_name
-                                ),
-                                closeup_photo=(
-                                    new_closeup_photo_name
-                                ),
-                                is_active=(
-                                    edit_active
-                                ),
-                            )
-
-                            # ---------------------------------
-                            # DELETE OLD MAIN PHOTO
-                            # ---------------------------------
-
-                            if (
-                                new_main_photo
-                                and main_photo
-                                and main_photo
-                                != new_main_photo_name
-                            ):
-
-                                delete_storage_file(
-                                    main_photo
+                                new_main_photo_name = (
+                                    uploaded_main_name
                                 )
 
+                            else:
 
-                            # ---------------------------------
-                            # DELETE OLD CLOSE-UP PHOTO
-                            # ---------------------------------
+                                upload_success = False
 
-                            if (
-                                new_closeup_photo
-                                and closeup_photo
-                                and closeup_photo
-                                != new_closeup_photo_name
-                            ):
 
-                                delete_storage_file(
-                                    closeup_photo
+                        # -------------------------------------
+                        # NEW CLOSE-UP PHOTO
+                        # -------------------------------------
+
+                        if (
+                            upload_success
+                            and new_closeup_photo
+                        ):
+
+                            uploaded_closeup_name = (
+                                upload_image(
+                                    new_closeup_photo,
+                                    leather_id,
+                                    "closeup",
+                                )
+                            )
+
+                            if uploaded_closeup_name:
+
+                                new_closeup_photo_name = (
+                                    uploaded_closeup_name
                                 )
 
+                            else:
 
-                            st.cache_data.clear()
+                                upload_success = False
 
-                            st.success(
-                                f"{leather_id} "
-                                "updated successfully."
-                            )
 
-                            st.rerun()
+                        if upload_success:
 
-                        except Exception as e:
+                            try:
 
-                            st.error(
-                                "Unable to update "
-                                "the article."
-                            )
+                                update_product(
+                                    leather_id=leather_id,
+                                    article_name=(
+                                        edit_article_name
+                                        .strip()
+                                    ),
+                                    color=(
+                                        edit_color
+                                        .strip()
+                                    ),
+                                    thickness=(
+                                        edit_thickness
+                                        .strip()
+                                    ),
+                                    tannage=(
+                                        edit_tannage
+                                        .strip()
+                                    ),
+                                    animal=(
+                                        edit_animal
+                                        .strip()
+                                    ),
+                                    origin=(
+                                        edit_origin
+                                        .strip()
+                                    ),
+                                    main_photo=(
+                                        new_main_photo_name
+                                    ),
+                                    closeup_photo=(
+                                        new_closeup_photo_name
+                                    ),
+                                    is_active=(
+                                        edit_active
+                                    ),
+                                )
 
-                            st.exception(e)
+                                # ---------------------------------
+                                # DELETE OLD MAIN PHOTO
+                                # ---------------------------------
+
+                                if (
+                                    new_main_photo
+                                    and main_photo
+                                    and main_photo
+                                    != new_main_photo_name
+                                ):
+
+                                    delete_storage_file(
+                                        main_photo
+                                    )
+
+
+                                # ---------------------------------
+                                # DELETE OLD CLOSE-UP PHOTO
+                                # ---------------------------------
+
+                                if (
+                                    new_closeup_photo
+                                    and closeup_photo
+                                    and closeup_photo
+                                    != new_closeup_photo_name
+                                ):
+
+                                    delete_storage_file(
+                                        closeup_photo
+                                    )
+
+
+                                st.cache_data.clear()
+
+                                st.success(
+                                    f"{leather_id} "
+                                    "updated successfully."
+                                )
+
+                                st.rerun()
+
+                            except Exception as e:
+
+                                st.error(
+                                    "Unable to update "
+                                    "the article."
+                                )
+
+                                st.exception(e)
 
 
             # =============================================
